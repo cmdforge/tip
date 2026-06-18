@@ -14,14 +14,19 @@
     "open": "node ./scripts/tip-ui.mjs open"
   },
   "dependencies": {
+    "@cmdforge/tip": "workspace:*",
     "@emotion/react": "^11.14.0",
     "@mantine/core": "^8.2.7",
     "@mantine/hooks": "^8.2.7",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
-    "@mcp-ui/client": "7.1.1"
+    "@mcp-ui/client": "7.1.1",
+    "@rjsf/core": "^5.24.13",
+    "@rjsf/validator-ajv8": "^5.24.13",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.11",

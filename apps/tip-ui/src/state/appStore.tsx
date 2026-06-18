@@ -1,0 +1,168 @@
+import type { Tool } from "@modelcontextprotocol/sdk/types";
+import { createContext, useContext, useEffect, useRef, type PropsWithChildren } from "react";
+import { createWithEqualityFn } from "zustand/traditional";
+import { shallow } from "zustand/shallow";
+import { appToolName } from "@cmdforge/tip";
+
+type AppState = {
+  serverUrl: string;
+  tools: Tool[];
+  selectedToolName: string | null;
+  selectedTab: "ui" | "form";
+  isConnecting: boolean;
+  connectionError: string | null;
+  infoModalTitle: string | null;
+  infoModalValue: unknown | null;
+};
+
+type AppActions = {
+  setServerUrl(serverUrl: string): void;
+  startConnecting(): void;
+  connectionSucceeded(tools: Tool[]): void;
+  connectionFailed(message: string): void;
+  setSelectedToolName(toolName: string | null): void;
+  setSelectedTab(tab: "ui" | "form"): void;
+  syncSelectedTool(tool: Tool | null): void;
+  openInfoModal(title: string, value: unknown): void;
+  closeInfoModal(): void;
+};
+
+export type AppStoreState = AppState & {
+  actions: AppActions;
+};
+
+type AppStore = ReturnType<typeof createAppStore>;
+
+function getDefaultSelectedToolName(tools: Tool[]) {
+  const preferredTool = tools.find((tool) => tool.name === appToolName);
+  return preferredTool?.name ?? tools[0]?.name ?? null;
+}
+
+function hasUiResource(tool: Tool | null) {
+  if (!tool) {
+    return false;
+  }
+
+  const ui = tool._meta?.ui;
+
+  if (!ui || typeof ui !== "object") {
+    return false;
+  }
+
+  return typeof (ui as { resourceUri?: unknown }).resourceUri === "string";
+}
+
+export function createAppStore(initialState?: Partial<AppState>) {
+  return createWithEqualityFn<AppStoreState>()(
+    (set) => {
+      const actions: AppActions = {
+        setServerUrl(serverUrl) {
+          set({ serverUrl });
+        },
+        startConnecting() {
+          set({
+            isConnecting: true,
+            connectionError: null,
+            tools: [],
+            selectedToolName: null,
+            selectedTab: "form",
+          });
+        },
+        connectionSucceeded(tools) {
+          const selectedToolName = getDefaultSelectedToolName(tools);
+          const selectedTool =
+            tools.find((tool) => tool.name === selectedToolName) ?? null;
+
+          set({
+            isConnecting: false,
+            connectionError: null,
+            tools,
+            selectedToolName,
+            selectedTab: hasUiResource(selectedTool) ? "ui" : "form",
+          });
+        },
+        connectionFailed(message) {
+          set({
+            isConnecting: false,
+            connectionError: message,
+            tools: [],
+            selectedToolName: null,
+            selectedTab: "form",
+          });
+        },
+        setSelectedToolName(toolName) {
+          set({ selectedToolName: toolName });
+        },
+        setSelectedTab(tab) {
+          set({ selectedTab: tab });
+        },
+        syncSelectedTool(tool) {
+          set((state) => ({
+            selectedTab:
+              state.selectedTab === "ui" && !hasUiResource(tool)
+                ? "form"
+                : state.selectedTab,
+          }));
+        },
+        openInfoModal(title, value) {
+          set({
+            infoModalTitle: title,
+            infoModalValue: value,
+          });
+        },
+        closeInfoModal() {
+          set({
+            infoModalTitle: null,
+            infoModalValue: null,
+          });
+        },
+      };
+
+      return {
+        serverUrl: initialState?.serverUrl ?? "",
+        tools: initialState?.tools ?? [],
+        selectedToolName: initialState?.selectedToolName ?? null,
+        selectedTab: initialState?.selectedTab ?? "form",
+        isConnecting: initialState?.isConnecting ?? false,
+        connectionError: initialState?.connectionError ?? null,
+        infoModalTitle: initialState?.infoModalTitle ?? null,
+        infoModalValue: initialState?.infoModalValue ?? null,
+        actions,
+      };
+    },
+    shallow,
+  );
+}
+
+const AppStoreContext = createContext<AppStore | null>(null);
+
+export function AppStoreProvider({
+  children,
+  initialServerUrl,
+}: PropsWithChildren<{ initialServerUrl: string }>) {
+  const storeRef = useRef<AppStore | null>(null);
+
+  if (!storeRef.current) {
+    storeRef.current = createAppStore({ serverUrl: initialServerUrl });
+  }
+
+  useEffect(() => {
+    storeRef.current?.getState().actions.setServerUrl(initialServerUrl);
+  }, [initialServerUrl]);
+
+  return (
+    <AppStoreContext.Provider value={storeRef.current}>
+      {children}
+    </AppStoreContext.Provider>
+  );
+}
+
+export function useAppStore<T>(selector: (state: AppStoreState) => T) {
+  const store = useContext(AppStoreContext);
+
+  if (!store) {
+    throw new Error("useAppStore must be used within AppStoreProvider");
+  }
+
+  return store(selector);
+}
