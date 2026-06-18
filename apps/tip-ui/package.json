@@ -1,6 +1,10 @@
 {
   "name": "@cmdforge/tip-ui",
   "version": "0.0.1",
+  "author": {
+    "name": "Fluttershy",
+    "url": "https://github.com/Fluttershy"
+  },
   "type": "module",
   "description": "Tool Interface Protocol (TIP) is a small set of helpers for defining tool contracts once and then reusing them across MCP servers, MCP clients, and a desktop UI shell.",
   "repository": {

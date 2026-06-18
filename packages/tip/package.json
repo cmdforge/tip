@@ -1,14 +1,15 @@
 {
   "name": "@cmdforge/tip",
-  "version": "0.0.1",
+  "version": "0.0.2",
+  "author": {
+    "name": "Fluttershy",
+    "url": "https://github.com/Fluttershy"
+  },
   "type": "module",
   "description": "Tool Interface Protocol (TIP) is a small set of helpers for defining tool contracts once and then reusing them across MCP servers, MCP clients, and a desktop UI shell.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cmdforge/tip.git"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "exports": {
     ".": {
@@ -33,5 +34,8 @@
     "@modelcontextprotocol/ext-apps": "1.7.4",
     "@mcp-ui/server": "6.1.0",
     "zod": "4.4.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
