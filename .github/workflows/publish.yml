@@ -23,4 +23,4 @@ jobs:
       - run: corepack enable
       - run: corepack pnpm install
       - run: pnpm install
-      - run: pnpm --filter @cmdforge/tip publish  # Or: npm stage publish
+      - run: pnpm --filter @cmdforge/tip publish --no-git-checks  # Or: npm stage publish
