@@ -11,6 +11,12 @@
     "type": "git",
     "url": "git+https://github.com/cmdforge/tip.git"
   },
+  "contributors": [
+    {
+      "name": "Fluttershy",
+      "url": "https://github.com/Fluttershy"
+    }
+  ],
   "exports": {
     ".": {
       "types": "./dist/shared/index.d.ts",
