@@ -23,4 +23,6 @@ jobs:
       - run: corepack enable
       - run: corepack pnpm install
       - run: pnpm install
+      - run: cp README.md packages/tip/README.md
+      - run: cp LICENSE packages/tip/LICENSE
       - run: pnpm --filter @cmdforge/tip publish --no-git-checks  # Or: npm stage publish
