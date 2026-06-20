@@ -1,5 +1,4 @@
 import { Box, Loader, Stack, Title } from "@mantine/core";
-import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { ServerSelection } from "./components/ServerSelection";
 import { ToolSelection } from "./components/ToolSelection";
@@ -35,7 +34,7 @@ function App() {
   useEffect(() => {
     let cancelled = false;
 
-    void invoke<LaunchOptions>("get_launch_options").then((value) => {
+    void window.api.getLaunchOptions().then((value) => {
       if (!cancelled) {
         setLaunchOptions(value);
       }

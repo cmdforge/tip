@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "bin": {
-    "ui": "./scripts/tip-ui.mjs"
+    "ui": "./scripts/tip-ui.mjs",
+    "manage": "./packages/mcp-manager/dist/bin/manage.js"
   },
   "scripts": {
     "build": "pnpm -r build",
