@@ -1,184 +1,75 @@
-# tip-manager
+# @cmdforge/tip-manager
 
-JSON-RPC protocol and transport helpers for talking to an MCP manager over WebSockets.
+TIP manager daemon and manager protocol.
 
-This project is still in-progress, but it already has a shared typed protocol layer, client/server peer wrappers, WebSocket transport helpers, and a bootstrap CLI command for starting a single-session manager transport.
+This package is responsible for:
 
-## Current shape
+- exposing the manager JSON-RPC protocol over WebSockets
+- keeping a live in-memory set of TIP server registrations
+- listing official registry entries
+- returning connection information for official and TIP-managed servers
 
-- `src/shared`
-  Shared protocol definitions and JSON-RPC utilities.
-- `src/client`
-  Client-side factories and transport helpers.
-- `src/server`
-  Server-side factories and transport helpers.
-- `src/bin/manage.ts`
-  Bootstrap command that starts a one-session WebSocket endpoint, prints its URL, waits for a handshake pong, and then lives for the lifetime of that socket.
+Shared TIP types and registration helpers live in [`@cmdforge/tip`](/Users/yakisoba/Documents/GitHub/tip/packages/tip/README.md).
 
-The eventual goal is still an MCP manager that:
+## Exports
 
-- tracks official registry entries separately from local `mcp.json` entries
-- starts MCP servers when needed
-- normalizes access so consumers always connect over WebSockets
-- exposes a typed JSON-RPC control plane for apps like CLIs, Electron/Tauri apps, and browser clients
+### `@cmdforge/tip-manager`
 
-## Shared protocol
+Shared manager protocol definitions.
 
-Protocols are defined in `src/shared/protocol.ts` using a small builder around `vscode-jsonrpc`.
+### `@cmdforge/tip-manager/client`
 
-Current manager methods:
+Manager client helpers for connecting to a manager WebSocket and then connecting through it to another server.
 
+### `@cmdforge/tip-manager/server`
+
+Manager server helpers, registry client helpers, and the manager daemon server factory.
+
+## Manager protocol
+
+Current request surface:
+
+- `servers/list`
+- `servers/connect`
 - `servers/official/list`
 - `servers/official/connect`
+- `servers/tip/list`
+- `servers/tip/connect`
+- `tip/register`
+
+Current notification surface:
+
 - `servers/official/ready`
-- `servers/mcpjson/list`
-- `servers/mcpjson/add`
-- `servers/mcpjson/remove`
-- `servers/mcpjson/connect`
-- `servers/mcpjson/listChanged`
+- `servers/tip/listChanged`
 
-The shared JSON-RPC helper in `src/shared/jsonrpc.ts` builds a typed peer API from those method strings.
+See the more explicit protocol summary in [doc/schema.md](/Users/yakisoba/Documents/GitHub/tip/packages/tip-manager/doc/schema.md).
 
-## Peer model
+## Daemon
 
-Binding a protocol to a connection returns a `ProtocolPeer`.
+The package bin is:
 
-The peer exposes:
-
-- `peer.outbound.requests...`
-- `peer.outbound.notifications...`
-- `peer.inbound.requests...(handler)`
-- `peer.inbound.notifications...(handler)`
-- `peer.connection`
-- `peer.protocol`
-
-So outbound calls are senders, and inbound calls are registrars.
-
-Example:
-
-```ts
-import { protocol } from "@cmdforge/tip-manager";
-
-const peer = protocol.server(connection, (peer) => {
-  peer.inbound.requests.servers.official.connect(async (params) => {
-    peer.outbound.notifications.servers.official.ready({
-      count: 1,
-      loadedAt: new Date().toISOString(),
-    });
-
-    return {
-      url: `ws://example/${params.name}`,
-    };
-  });
-});
+```bash
+npx -y @cmdforge/tip-manager
 ```
 
-## Client factory
+That starts the manager daemon. The daemon listens on `127.0.0.1` with an ephemeral port and reports `{ pid, url }` back to the spawning process over Node IPC.
 
-Use `createClient(protocol, initialize?)` to bind a protocol and optional initializer once, then connect it over transports later.
+In normal usage you do not call the daemon directly. `@cmdforge/tip/server` handles manager startup through `utils.ensureManagerStarted()`.
 
-```ts
-import { createClient } from "@cmdforge/tip-manager/client";
-import { protocol } from "@cmdforge/tip-manager";
+## Official vs TIP servers
 
-const client = createClient(protocol, (peer) => {
-  peer.inbound.notifications.servers.official.ready((params) => {
-    console.log(params.count, params.loadedAt);
-  });
-});
+The manager currently understands two categories:
 
-const peer = await client.connectWebSocket("ws://127.0.0.1:3000/");
-```
+- `official`
+  Registry-backed entries fetched from the MCP registry.
+- `tip`
+  Locally registered `ServerJson` entries. These can describe a remote MCP server directly, or they can carry TIP startup metadata for a command that should later be launched by the manager.
 
-Right now the first transport helper is:
-
-- `connectWebSocket(url, options?)`
-
-## Server factory
-
-Use `createServer(protocol, initialize?)` to bind server-side behavior once.
-
-```ts
-import { createServer } from "@cmdforge/tip-manager/server";
-import { protocol } from "@cmdforge/tip-manager";
-
-const server = createServer(protocol, (peer) => {
-  peer.inbound.requests.servers.mcpjson.list(() => ({
-    servers: [],
-  }));
-});
-```
-
-Current server-side helpers:
-
-- `acceptWebSocket(webSocket, options?)`
-- `startWebSocket(options?)`
-
-`acceptWebSocket(...)` binds one already-accepted WebSocket into a peer.
-
-`startWebSocket(...)` currently behaves as a single-session rendezvous:
-
-- starts a WebSocket server
-- returns its URL immediately
-- accepts the first incoming socket
-- binds that socket into a peer
-- rejects additional clients
-- exposes `peer` and `closed` promises for the session lifetime
-
-Example:
-
-```ts
-const server = createServer(protocol);
-const started = await server.startWebSocket({
-  host: "127.0.0.1",
-  port: 0,
-  path: "/",
-});
-
-console.log(started.url);
-
-const peer = await started.peer;
-await started.closed;
-```
-
-## Bootstrap command
-
-The package currently exposes a `manage` bin:
-
-```sh
-npx -y @cmdforge/tip-manager manage
-```
-
-That command:
-
-1. starts a single-session WebSocket server on `127.0.0.1` with a random port
-2. prints a bootstrap message to stdout:
-
-```json
-{"type":"websocket-url","url":"ws://127.0.0.1:12345/"}
-```
-
-3. waits for a pong on stdin
-4. then keeps running for the lifetime of the accepted socket session
-
-The pong can currently be either:
-
-- `pong`
-- `{"type":"pong"}`
-
-This handshake is intentionally separate from the manager JSON-RPC protocol itself. It is just the bootstrap phase used to learn the WebSocket URL for the newly started manager process.
+At the moment, direct remote tip entries can connect immediately. Command-based tip startup metadata is parsed and stored, but actual process startup through manager is still not implemented.
 
 ## Development
 
-```sh
-npm install
-npm run build
-npm test
+```bash
+pnpm --dir packages/tip-manager build
+pnpm --dir packages/tip-manager test
 ```
-
-Current tests cover:
-
-- cached registry loading
-- protocol outbound nesting
-- protocol inbound registration
-- client/server direction wiring

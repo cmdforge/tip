@@ -1,5 +1,7 @@
 # tip-manager JSON-RPC Schema
 
+This file is a human-readable summary of the current manager protocol in [src/shared/protocol.ts](/Users/yakisoba/Documents/GitHub/tip/packages/tip-manager/src/shared/protocol.ts).
+
 ## Transport
 
 - protocol: JSON-RPC 2.0
@@ -17,7 +19,7 @@ type ListServersParams =
       type: "official";
     } & OfficialServersListParams)
   | {
-      type: "mcpjson";
+      type: "tip";
     };
 ```
 
@@ -29,8 +31,8 @@ type ListServersResult =
       type: "official";
     } & OfficialServersListResult)
   | ({
-      type: "mcpjson";
-    } & McpJsonServersListResult);
+      type: "tip";
+    } & TipServersListResult);
 ```
 
 ### `servers/connect`
@@ -43,8 +45,8 @@ type ConnectServersParams =
       type: "official";
     } & OfficialServerConnectParams)
   | ({
-      type: "mcpjson";
-    } & McpJsonServerConnectParams);
+      type: "tip";
+    } & TipServerConnectParams);
 ```
 
 Response result:
@@ -56,7 +58,7 @@ type ConnectServersResult =
       url: string;
     }
   | {
-      type: "mcpjson";
+      type: "tip";
       url: string;
     };
 ```
@@ -65,8 +67,12 @@ type ConnectServersResult =
 
 Request params:
 
-```json
-null
+```ts
+type OfficialServersListParams = {
+  category?: string;
+  cursor?: string;
+  search?: string;
+};
 ```
 
 Response result:
@@ -80,6 +86,7 @@ type OfficialServersListResult =
       ready: true;
       count: number;
       loadedAt: string;
+      nextCursor?: string;
       servers: ServerResponse[];
     };
 ```
@@ -111,7 +118,7 @@ type ConnectServerResult = {
 };
 ```
 
-### `servers/mcpjson/list`
+### `servers/tip/list`
 
 Request params:
 
@@ -122,53 +129,17 @@ null
 Response result:
 
 ```ts
-type McpJsonServersListResult = {
+type TipServersListResult = {
   servers: ServerJson[];
 };
 ```
 
-### `servers/mcpjson/add`
+### `servers/tip/connect`
 
 Request params:
 
 ```ts
-type AddMcpJsonServerParams = {
-  server: ServerJson;
-};
-```
-
-Response result:
-
-```ts
-type McpJsonServersListResult = {
-  servers: ServerJson[];
-};
-```
-
-### `servers/mcpjson/remove`
-
-Request params:
-
-```ts
-type RemoveMcpJsonServerParams = {
-  name: string;
-};
-```
-
-Response result:
-
-```ts
-type McpJsonServersListResult = {
-  servers: ServerJson[];
-};
-```
-
-### `servers/mcpjson/connect`
-
-Request params:
-
-```ts
-type McpJsonServerConnectParams = {
+type TipServerConnectParams = {
   name: string;
 };
 ```
@@ -178,6 +149,24 @@ Response result:
 ```ts
 type ConnectServerResult = {
   url: string;
+};
+```
+
+### `tip/register`
+
+Request params:
+
+```ts
+type TipServerRegisterParams = {
+  server: ServerJson;
+};
+```
+
+Response result:
+
+```ts
+type TipServerRegisterResult = {
+  name: string;
 };
 ```
 
@@ -194,17 +183,20 @@ type OfficialServersReadyParams = {
 };
 ```
 
-### `servers/mcpjson/listChanged`
+### `servers/tip/listChanged`
 
 Notification params:
 
 ```ts
-type McpJsonServersChangedParams = {
+type TipServersChangedParams = {
   servers: ServerJson[];
 };
 ```
 
 ## Notes
 
-- `ServerJson` and `ServerResponse` come from the generated registry/OpenAPI types in `src/shared/registry`.
-- `ConnectServerResult.url` is intended to be a WebSocket URL.
+- `ServerJson`, `ServerResponse`, `ServerListResponse`, and registry OpenAPI `paths` are shared from [`@cmdforge/tip`](/Users/yakisoba/Documents/GitHub/tip/packages/tip/README.md).
+- `ConnectServerResult.url` is the connectable MCP endpoint returned by manager.
+- TIP registrations currently store full `ServerJson` entries. Those entries may describe either:
+  - a directly connectable remote MCP server
+  - a TIP-managed server with startup metadata in `_meta`

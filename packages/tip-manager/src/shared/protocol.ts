@@ -1,16 +1,12 @@
-import type {
-  ServerJson,
-  ServerResponse,
-} from "./registry/index.js";
+import type { ServerJson, ServerResponse } from "@cmdforge/tip";
 import {
   createProtocol,
 } from "@cmdforge/jsonrpc";
 import type { ProtocolInstance } from "@cmdforge/jsonrpc";
 
-export type ServerType = "official" | "mcpjson" | "tip";
+export type ServerType = "official" | "tip";
 
 export type OfficialServerName = ServerResponse["server"]["name"];
-export type McpJsonServerName = ServerJson["name"];
 export type TipServerName = string;
 
 export interface OfficialServersReadyParams {
@@ -40,39 +36,25 @@ export interface OfficialServersListParams {
   search?: string;
 }
 
-export interface McpJsonServersListResult {
+export interface TipServersChangedParams {
   servers: ServerJson[];
-}
-
-export interface McpJsonServersChangedParams {
-  servers: ServerJson[];
-}
-
-export interface TipServerListEntry {
-  name: TipServerName;
 }
 
 export interface TipServersListResult {
-  servers: TipServerListEntry[];
+  servers: ServerJson[];
 }
 
-export type OfficialServerConnectTarget =
-  | {
-    type: "remote";
-    index: number;
-  }
-  | {
-    type: "package";
-    index: number;
-  };
+export type OfficialServerConnectTarget = {
+  type: "remote";
+  index: number;
+} | {
+  type: "package";
+  index: number;
+};
 
 export interface OfficialServerConnectParams {
   name: OfficialServerName;
   target: OfficialServerConnectTarget;
-}
-
-export interface McpJsonServerConnectParams {
-  name: McpJsonServerName;
 }
 
 export interface TipServerConnectParams {
@@ -80,8 +62,7 @@ export interface TipServerConnectParams {
 }
 
 export interface TipServerRegisterParams {
-  name: TipServerName;
-  url: string;
+  server: ServerJson;
 }
 
 export interface TipServerRegisterResult {
@@ -97,9 +78,6 @@ export type ListServersParams =
     type: "official";
   } & OfficialServersListParams)
   | {
-    type: "mcpjson";
-  }
-  | {
     type: "tip";
   };
 
@@ -107,9 +85,6 @@ export type ListServersResult =
   | ({
     type: "official";
   } & OfficialServersListResult)
-  | ({
-    type: "mcpjson";
-  } & McpJsonServersListResult)
   | ({
     type: "tip";
   } & TipServersListResult);
@@ -119,9 +94,6 @@ export type ConnectServersParams =
     type: "official";
   } & OfficialServerConnectParams)
   | ({
-    type: "mcpjson";
-  } & McpJsonServerConnectParams)
-  | ({
     type: "tip";
   } & TipServerConnectParams);
 
@@ -130,19 +102,8 @@ export type ConnectServersResult =
     type: "official";
   } & ConnectServerResult)
   | ({
-    type: "mcpjson";
-  } & ConnectServerResult)
-  | ({
     type: "tip";
   } & ConnectServerResult);
-
-export interface AddMcpJsonServerParams {
-  server: ServerJson;
-}
-
-export interface RemoveMcpJsonServerParams {
-  name: McpJsonServerName;
-}
 
 export const protocol = createProtocol(({ request, notification }) => ({
   clientToServer: {
@@ -161,22 +122,6 @@ export const protocol = createProtocol(({ request, notification }) => ({
       >(),
       connectOfficialServer: request("servers/official/connect")<
         OfficialServerConnectParams,
-        ConnectServerResult
-      >(),
-      listMcpJsonServers: request("servers/mcpjson/list")<
-        void,
-        McpJsonServersListResult
-      >(),
-      addMcpJsonServer: request("servers/mcpjson/add")<
-        AddMcpJsonServerParams,
-        McpJsonServersListResult
-      >(),
-      removeMcpJsonServer: request("servers/mcpjson/remove")<
-        RemoveMcpJsonServerParams,
-        McpJsonServersListResult
-      >(),
-      connectMcpJsonServer: request("servers/mcpjson/connect")<
-        McpJsonServerConnectParams,
         ConnectServerResult
       >(),
       listTipServers: request("servers/tip/list")<
@@ -198,8 +143,8 @@ export const protocol = createProtocol(({ request, notification }) => ({
       officialServersReady: notification("servers/official/ready")<
         OfficialServersReadyParams
       >(),
-      mcpJsonServersChanged: notification("servers/mcpjson/listChanged")<
-        McpJsonServersChangedParams
+      tipServersChanged: notification("servers/tip/listChanged")<
+        TipServersChangedParams
       >(),
     },
   },

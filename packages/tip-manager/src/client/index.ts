@@ -11,7 +11,6 @@ import type {
   ConnectServersParams,
   ConnectServersResult,
   ManagerProtocol,
-  McpJsonServerConnectParams,
   OfficialServerConnectParams,
   TipServerConnectParams,
 } from '../shared/protocol.js';
@@ -38,11 +37,6 @@ export interface ManagerClientPeer extends ProtocolPeer<ManagerProtocol, "client
   ): Promise<ConnectedServer<Definition>>;
   connectOfficialServer<Definition extends ProtocolDefinition>(
     params: OfficialServerConnectParams,
-    clientFactory: ClientFactory<Definition>,
-    options?: CreateWebSocketClientOptions,
-  ): Promise<ConnectedServer<Definition>>;
-  connectMcpJsonServer<Definition extends ProtocolDefinition>(
-    params: McpJsonServerConnectParams,
     clientFactory: ClientFactory<Definition>,
     options?: CreateWebSocketClientOptions,
   ): Promise<ConnectedServer<Definition>>;
@@ -105,24 +99,6 @@ function attachManagerClient(peer: ManagerClientPeer) {
       this,
       {
         type: "official",
-        ...params,
-      },
-      clientFactory,
-      options,
-    );
-  };
-
-  peer.connectMcpJsonServer = async function connectManagedMcpJsonServer<
-    Definition extends ProtocolDefinition,
-  >(
-    params: McpJsonServerConnectParams,
-    clientFactory: ClientFactory<Definition>,
-    options?: CreateWebSocketClientOptions,
-  ) {
-    return await connectServer(
-      this,
-      {
-        type: "mcpjson",
         ...params,
       },
       clientFactory,

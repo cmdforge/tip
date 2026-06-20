@@ -1,16 +1,20 @@
 import type { ProtocolPeer } from "@cmdforge/jsonrpc";
-import { tipClientFactory } from "@cmdforge/tip/client";
+import {
+  getTipServerStartupMeta,
+} from "@cmdforge/tip/server";
+import {
+  type ServerJson,
+} from "@cmdforge/tip";
 import type {
   ConnectServerResult,
   ManagerProtocol,
-  McpJsonServerConnectParams,
-  McpJsonServersListResult,
   OfficialServerConnectParams,
   OfficialServersListParams,
   OfficialServersListResult,
   OfficialServersReadyParams,
   TipServerConnectParams,
   TipServerRegisterParams,
+  TipServersChangedParams,
   TipServersListResult,
 } from "../shared/protocol.js";
 import { getAllServers } from "./getAllServers.js";
@@ -21,10 +25,8 @@ export interface ManagerInstance {
   addSession(peer: ProtocolPeer<ManagerProtocol, "server">): void;
   registerTipServer(params: TipServerRegisterParams): void;
   getOfficialServers(params: OfficialServersListParams): Promise<OfficialServersListResult>;
-  getMcpJsonServers(): Promise<McpJsonServersListResult>;
   getTipServers(): Promise<TipServersListResult>;
   connectOfficialServer(params: OfficialServerConnectParams): Promise<ConnectServerResult>;
-  connectMcpJsonServer(params: McpJsonServerConnectParams): Promise<ConnectServerResult>;
   connectTipServer(params: TipServerConnectParams): Promise<ConnectServerResult>;
 }
 
@@ -42,7 +44,7 @@ export function getManagerInstance(): ManagerInstance {
 
 function createManagerInstance(): ManagerInstance {
   const sessions = new Set<ProtocolPeer<ManagerProtocol, "server">>();
-  const tipServers = new Map<string, string>();
+  const tipServers = new Map<string, ServerJson>();
   let officialState: OfficialState | undefined;
 
   const officialReady = loadOfficialState().then((state) => {
@@ -79,7 +81,15 @@ function createManagerInstance(): ManagerInstance {
       });
     },
     registerTipServer(params) {
-      tipServers.set(params.name, params.url);
+      tipServers.set(params.server.name, params.server);
+
+      const changed: TipServersChangedParams = {
+        servers: sortTipServers(tipServers.values()),
+      };
+
+      for (const peer of sessions) {
+        peer.outbound.notifications.servers.tip.listChanged(changed);
+      }
     },
     async getOfficialServers(params) {
       if (!officialState) {
@@ -109,16 +119,9 @@ function createManagerInstance(): ManagerInstance {
         servers,
       };
     },
-    async getMcpJsonServers() {
-      return {
-        servers: [],
-      };
-    },
     async getTipServers() {
       return {
-        servers: [...tipServers.keys()]
-          .sort((left, right) => left.localeCompare(right))
-          .map((name) => ({ name })),
+        servers: sortTipServers(tipServers.values()),
       };
     },
     async connectOfficialServer(params) {
@@ -159,18 +162,13 @@ function createManagerInstance(): ManagerInstance {
         `Package targets are not implemented yet for official server: ${params.name}`,
       );
     },
-    async connectMcpJsonServer(params) {
-      throw new Error(`mcpjson server connect is not implemented yet: ${params.name}`);
-    },
     async connectTipServer(params) {
-      const url = tipServers.get(params.name);
-
-      if (!url) {
+      const server = tipServers.get(params.name);
+      if (!server) {
         throw new Error(`tip server not registered: ${params.name}`);
       }
 
-      const peer = await tipClientFactory.connectWebSocket(url);
-      return await peer.outbound.requests.tip.connect();
+      return connectRegisteredTipServer(server);
     },
   };
 }
@@ -259,4 +257,26 @@ function parseCursor(cursor?: string) {
 
 function isWebSocketUrl(url: string) {
   return url.startsWith("ws://") || url.startsWith("wss://");
+}
+
+function sortTipServers(servers: Iterable<ServerJson>) {
+  return [...servers].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function connectRegisteredTipServer(server: ServerJson): ConnectServerResult {
+  const remote = server.remotes?.find((entry) => typeof entry.url === "string");
+  if (remote?.url) {
+    return {
+      url: remote.url,
+    };
+  }
+
+  const startup = getTipServerStartupMeta(server);
+  if (startup) {
+    throw new Error(
+      `tip server startup is not implemented yet for command: ${startup.command}`,
+    );
+  }
+
+  throw new Error(`tip server has no usable remote or startup metadata: ${server.name}`);
 }

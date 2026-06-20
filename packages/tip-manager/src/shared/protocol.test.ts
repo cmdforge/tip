@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { JsonRpcConnectionLike } from "@cmdforge/jsonrpc";
+import type { ServerJson } from "@cmdforge/tip";
 import {
   protocol,
   type ConnectServersParams,
@@ -41,6 +42,13 @@ class FakeConnection implements JsonRpcConnectionLike {
   }
 }
 
+const gitprofileServer: ServerJson = {
+  $schema: "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  name: "io.github.cmdforge/gitprofile",
+  description: "Git profile MCP server",
+  version: "0.0.0",
+};
+
 test("protocol client exposes nested outbound APIs and registers inbound notifications", async () => {
   const connection = new FakeConnection();
   const seenReady: Array<{ count: number; loadedAt: string }> = [];
@@ -57,17 +65,16 @@ test("protocol client exposes nested outbound APIs and registers inbound notific
     type: "official",
   });
   await client.outbound.requests.servers.connect({
-    type: "mcpjson",
-    name: "example",
+    type: "tip",
+    name: gitprofileServer.name,
   });
   await client.outbound.requests.servers.official.list();
-  await client.outbound.requests.servers.mcpjson.connect({
-    name: "example",
+  await client.outbound.requests.servers.tip.connect({
+    name: gitprofileServer.name,
   });
   await client.outbound.requests.servers.tip.list();
   await client.outbound.requests.tip.register({
-    name: "gitprofile",
-    url: "ws://127.0.0.1:4041/",
+    server: gitprofileServer,
   });
 
   assert.deepEqual(connection.sentRequests, [
@@ -83,8 +90,8 @@ test("protocol client exposes nested outbound APIs and registers inbound notific
       method: "servers/connect",
       params: [
         {
-          type: "mcpjson",
-          name: "example",
+          type: "tip",
+          name: gitprofileServer.name,
         },
       ],
     },
@@ -93,10 +100,10 @@ test("protocol client exposes nested outbound APIs and registers inbound notific
       params: [],
     },
     {
-      method: "servers/mcpjson/connect",
+      method: "servers/tip/connect",
       params: [
         {
-          name: "example",
+          name: gitprofileServer.name,
         },
       ],
     },
@@ -108,8 +115,7 @@ test("protocol client exposes nested outbound APIs and registers inbound notific
       method: "tip/register",
       params: [
         {
-          name: "gitprofile",
-          url: "ws://127.0.0.1:4041/",
+          server: gitprofileServer,
         },
       ],
     },
@@ -148,8 +154,8 @@ test("protocol server exposes nested outbound APIs and registers inbound request
         }
 
         return {
-          type: "mcpjson" as const,
-          servers: [],
+          type: "tip" as const,
+          servers: [gitprofileServer],
         };
       },
     );
@@ -171,22 +177,16 @@ test("protocol server exposes nested outbound APIs and registers inbound request
       },
     );
 
-    peer.inbound.requests.servers.mcpjson.list(() => {
-      return {
-        servers: [],
-      };
-    });
-
     peer.inbound.requests.servers.tip.list(() => {
       return {
-        servers: [{ name: "gitprofile" }],
+        servers: [gitprofileServer],
       };
     });
 
     peer.inbound.requests.tip.register(
       async (params: TipServerRegisterParams) => {
         return {
-          name: params.name,
+          name: params.server.name,
         };
       },
     );
@@ -243,35 +243,26 @@ test("protocol server exposes nested outbound APIs and registers inbound request
   assert.ok(connectServers);
 
   const connectServersResult = await connectServers({
-    type: "mcpjson",
-    name: "example",
+    type: "tip",
+    name: gitprofileServer.name,
   });
 
   assert.deepEqual(connectServersResult, {
-    type: "mcpjson",
-    url: "ws://mcpjson/example",
-  });
-
-  const mcpjsonList = connection.requests.get("servers/mcpjson/list");
-  assert.ok(mcpjsonList);
-
-  const mcpjsonListResult = await mcpjsonList();
-  assert.deepEqual(mcpjsonListResult, {
-    servers: [],
+    type: "tip",
+    url: `ws://tip/${gitprofileServer.name}`,
   });
 
   const tipList = connection.requests.get("servers/tip/list");
   assert.ok(tipList);
   assert.deepEqual(await tipList(), {
-    servers: [{ name: "gitprofile" }],
+    servers: [gitprofileServer],
   });
 
   const tipRegister = connection.requests.get("tip/register");
   assert.ok(tipRegister);
   assert.deepEqual(await tipRegister({
-    name: "gitprofile",
-    url: "ws://127.0.0.1:4041/",
+    server: gitprofileServer,
   }), {
-    name: "gitprofile",
+    name: gitprofileServer.name,
   });
 });

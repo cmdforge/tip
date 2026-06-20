@@ -1,34 +1,54 @@
-# tip-ui
+# @cmdforge/tip-ui
 
-An Electron application with React and TypeScript
+Electron shell for connecting to an MCP server and rendering its tools.
 
-## Recommended IDE Setup
+This app is intentionally small. It is meant to be a host shell for:
 
-- [VSCode](https://code.visualstudio.com/) + [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) + [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode)
+- browsing a server's tool list
+- preferring a custom MCP Apps UI resource when one exists
+- falling back to a generated form when a tool only exposes JSON Schema
 
-## Project Setup
+Shared library details live in [`@cmdforge/tip`](/Users/yakisoba/Documents/GitHub/tip/packages/tip/README.md).
 
-### Install
+## Current behavior
+
+The shell currently:
+
+- accepts a server URL
+- chooses WebSocket vs streamable HTTP from the URL scheme
+- loads the server tool list
+- prefers the TIP UI tool if it exists, otherwise selects the first tool
+- shows a tool info modal with pretty-printed JSON
+- shows a server info modal with the full tool list JSON
+- renders two tabs for the selected tool:
+  - `UI`
+  - `Form`
+
+The `UI` tab is disabled when the selected tool does not expose a UI resource. The `Form` tab is always available.
+
+## CLI
+
+The package exposes:
 
 ```bash
-$ npm install
+tip-ui open <server-url>
 ```
 
-### Development
+From this monorepo, the root forwards that through the `ui` bin:
 
 ```bash
-$ npm run dev
+pnpm dlx github:cmdforge/tip ui open <server-url>
 ```
 
-### Build
+## Development
 
 ```bash
-# For windows
-$ npm run build:win
+pnpm --dir apps/tip-ui dev
+```
 
-# For macOS
-$ npm run build:mac
+For typechecking and build output:
 
-# For Linux
-$ npm run build:linux
+```bash
+pnpm --dir apps/tip-ui typecheck
+pnpm --dir apps/tip-ui build
 ```

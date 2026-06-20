@@ -1,6 +1,7 @@
 export * from './protocol.js';
 export * from './connection.js';
 export * from './tip-protocol.js';
+export * from './registry/index.js';
 
 export type DaemonInfo = {
   pid: number;

@@ -4,8 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "ui": "./scripts/tip-ui.mjs",
-    "manage": "./packages/tip-manager/dist/bin/manage.js"
+    "ui": "./scripts/tip-ui.mjs"
   },
   "scripts": {
     "build": "pnpm -r build",

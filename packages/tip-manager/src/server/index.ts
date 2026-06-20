@@ -25,11 +25,6 @@ export const serverFactory = createServerFactory(protocol, (peer) => {
             type: params.type,
             ...await manager.getOfficialServers(params),
           };
-        case 'mcpjson':
-          return {
-            type: params.type,
-            ...await manager.getMcpJsonServers(),
-          };
         case 'tip':
           return {
             type: params.type,
@@ -48,11 +43,6 @@ export const serverFactory = createServerFactory(protocol, (peer) => {
           return {
             type: params.type,
             ...await manager.connectOfficialServer(params),
-          };
-        case 'mcpjson':
-          return {
-            type: params.type,
-            ...await manager.connectMcpJsonServer(params),
           };
         case 'tip':
           return {
@@ -77,18 +67,6 @@ export const serverFactory = createServerFactory(protocol, (peer) => {
     },
   );
 
-  peer.inbound.requests.servers.mcpjson.list(
-    async () => {
-      return await manager.getMcpJsonServers();
-    },
-  );
-
-  peer.inbound.requests.servers.mcpjson.connect(
-    async (params) => {
-      return await manager.connectMcpJsonServer(params);
-    },
-  );
-
   peer.inbound.requests.servers.tip.list(
     async () => {
       return await manager.getTipServers();
@@ -104,7 +82,7 @@ export const serverFactory = createServerFactory(protocol, (peer) => {
   peer.inbound.requests.tip.register(
     async (params: TipServerRegisterParams) => {
       manager.registerTipServer(params);
-      return { name: params.name };
+      return { name: params.server.name };
     },
   );
 });

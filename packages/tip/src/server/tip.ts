@@ -1,44 +1,149 @@
 import { readFile } from "node:fs/promises";
-import os from "node:os";
-import path from 'node:path';
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { ProtocolInstance, ProtocolPeer } from "@cmdforge/jsonrpc";
+import { createProtocol, request } from "@cmdforge/jsonrpc";
+import { createClientFactory } from "@cmdforge/jsonrpc/client";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createServerFactory } from "@cmdforge/jsonrpc/server";
-import type { HandlerForTools, ProtocolTools } from "../shared/index.js";
-import { tipProtocol } from "../shared/tip-protocol.js";
+import type {
+  HandlerForTools,
+  ProtocolTools,
+  ServerJson,
+} from "../shared/index.js";
+import {
+  mergeTipServerStartupMeta,
+  tipServerSchemaUrl,
+  type TipServerStartupOptions,
+} from "./server-entry.js";
+import { ensureManagerStarted } from "./utils.js";
 import { registerAppUI } from "./app.js";
 import { registerTools } from "./mcp.js";
 
-export interface RegisterTipServerOptions {
-  name: string;
-  htmlFile?: string;
+interface TipManagerRegisterParams {
+  server: ServerJson;
 }
 
-export const tipServerFactory = createServerFactory(tipProtocol);
+interface TipManagerRegisterResult {
+  name: string;
+}
 
-export async function registerTipServer<TTools extends ProtocolTools>(
+const managerRegistrationProtocol = createProtocol(({ request }) => ({
+  clientToServer: {
+    requests: {
+      register: request("tip/register")<
+        TipManagerRegisterParams,
+        TipManagerRegisterResult
+      >(),
+    },
+  },
+  serverToClient: {},
+  bidirectional: {},
+}));
+
+type ManagerRegistrationProtocol =
+  typeof managerRegistrationProtocol extends ProtocolInstance<infer Definition>
+    ? Definition
+    : never;
+
+const managerRegistrationClient = createClientFactory(managerRegistrationProtocol);
+
+export interface CreateTipServerJsonOptions extends TipServerStartupOptions {
+  name: string;
+  description: string;
+  title?: string;
+  version?: string;
+  websiteUrl?: string;
+}
+
+export type RegisterTipServerOptions =
+  | ({
+    server: ServerJson;
+    startup?: TipServerStartupOptions;
+  })
+  | CreateTipServerJsonOptions;
+
+export function createTipServerJson(options: CreateTipServerJsonOptions): ServerJson {
+  const server: ServerJson = {
+    $schema: tipServerSchemaUrl,
+    name: options.name,
+    description: options.description,
+    version: options.version ?? "0.0.0",
+    ...(options.title ? { title: options.title } : {}),
+    ...(options.websiteUrl ? { websiteUrl: options.websiteUrl } : {}),
+  };
+
+  return mergeTipServerStartupMeta(server, {
+    command: options.command,
+    ...(options.args ? { args: options.args } : {}),
+    ...(options.cwd ? { cwd: options.cwd } : {}),
+    ...(options.env ? { env: options.env } : {}),
+  });
+}
+
+export async function registerTipServer(options: RegisterTipServerOptions) {
+  const manager = await ensureManagerStarted();
+  const peer = await managerRegistrationClient.connectWebSocket(manager.url);
+
+  try {
+    const server = resolveRegisteredServer(options);
+    return await peer.outbound.requests.tip.register({ server });
+  } finally {
+    closePeer(peer);
+  }
+}
+
+export type StartTipServerOptions = RegisterTipServerOptions & {
+  htmlFile?: string;
+  register?: boolean;
+};
+
+export interface StartedTipServer {
+  url: string;
+  close(): Promise<void>;
+}
+
+export async function startTipServer<TTools extends ProtocolTools>(
   handler: HandlerForTools<TTools>,
-  options: RegisterTipServerOptions,
-) {
+  options: StartTipServerOptions,
+): Promise<StartedTipServer> {
   const htmlString = options.htmlFile
     ? await readFile(options.htmlFile, { encoding: "utf8" })
     : undefined;
+  const registration = toRegisterTipServerOptions(options);
 
-  return await tipServerFactory.startWebSocket({
-    host: "127.0.0.1",
-    port: 0,
-    onPeer(peer) {
-      peer.inbound.requests.tip.connect(async () => {
-        const started = await startTipMcpServer(handler, {
-          name: options.name,
-          htmlString,
-        });
+  if (options.register !== false) {
+    await registerTipServer(registration);
+  }
 
-        return { url: started.url };
-      });
-    },
+  return await startTipMcpServer(handler, {
+    name: resolveRegisteredServer(registration).name,
+    htmlString,
   });
+}
+
+function resolveRegisteredServer(options: RegisterTipServerOptions): ServerJson {
+  if ("server" in options) {
+    return options.startup
+      ? mergeTipServerStartupMeta(options.server, options.startup)
+      : options.server;
+  }
+
+  return createTipServerJson(options);
+}
+
+function toRegisterTipServerOptions(options: StartTipServerOptions): RegisterTipServerOptions {
+  const { htmlFile: _htmlFile, register: _register, ...registration } = options;
+  return registration;
+}
+
+function closePeer(peer: ProtocolPeer<ManagerRegistrationProtocol, "client">) {
+  const connection = peer.connection as {
+    end?: () => void;
+    dispose?: () => void;
+  };
+
+  connection.end?.();
+  connection.dispose?.();
 }
 
 interface StartTipMcpServerOptions {
@@ -46,15 +151,10 @@ interface StartTipMcpServerOptions {
   htmlString?: string;
 }
 
-interface StartedTipMcpServer {
-  url: string;
-  close(): Promise<void>;
-}
-
 async function startTipMcpServer<TTools extends ProtocolTools>(
   handler: HandlerForTools<TTools>,
   options: StartTipMcpServerOptions,
-): Promise<StartedTipMcpServer> {
+): Promise<StartedTipServer> {
   const server = new McpServer({
     name: options.name,
     version: "0.0.0",

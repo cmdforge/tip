@@ -1,5 +1,5 @@
 import { registryClient } from "./registry-client.js";
-import { ServerListResponse } from '../shared/registry/index.js';
+import type { ServerListResponse } from '@cmdforge/tip';
 import assert from "node:assert/strict";
 import { mkdir, writeFile, readFile } from 'fs/promises';
 import fs from 'fs';

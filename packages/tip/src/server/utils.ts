@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
-import { createWriteStream } from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import net from "node:net";
@@ -17,7 +17,7 @@ export const names = {
 export const paths = {
   async ensure(folder: string) { await fs.mkdir(folder, { recursive: true }); return folder; },
   async root() { return await this.ensure(path.join(os.homedir(), '.cmdforge', 'tip')); },
-  async lock() { return await this.ensure(path.join(await paths.root(), names.lock())); },
+  async lock() { return path.join(await paths.root(), names.lock()); },
   async info() { return path.join(await paths.root(), names.info()); },
   async stdout() { return path.join(await this.root(), names.stdout()); },
   async stderr() { return path.join(await this.root(), names.stderr()); },
@@ -43,7 +43,10 @@ async function ensureDaemonStartedCore(): Promise<DaemonInfo> {
   const existing = await readExistingDaemon();
   if (existing) return existing;
 
-  await acquireLock();
+  const lockOrDaemon = await acquireLockOrReadExistingDaemon();
+  if ("pid" in lockOrDaemon) {
+    return lockOrDaemon;
+  }
 
   try {
     const existingAfterLock = await readExistingDaemon();
@@ -51,13 +54,13 @@ async function ensureDaemonStartedCore(): Promise<DaemonInfo> {
 
     return await startDaemon();
   } finally {
-    await releaseLock();
+    await releaseLock(lockOrDaemon);
   }
 }
 
 async function readExistingDaemon(): Promise<DaemonInfo | undefined> {
   try {
-    const raw = await fs.readFile(infoFile, "utf8");
+    const raw = await fs.readFile(await paths.info(), "utf8");
     const info = JSON.parse(raw) as DaemonInfo;
 
     if (!Number.isInteger(info.pid) || !info.url) return undefined;
@@ -71,64 +74,122 @@ async function readExistingDaemon(): Promise<DaemonInfo | undefined> {
 }
 
 async function startDaemon(): Promise<DaemonInfo> {
-  const stdout = createWriteStream(stdoutFile, { flags: "a" });
-  const stderr = createWriteStream(stderrFile, { flags: "a" });
+  const stdout = await files.stdout();
+  const stderr = await files.stderr();
+  const cwd = await paths.root();
 
-  const child = spawn(process.execPath, [path.join(__dirname, "daemon.js")], {
+  const child = spawn("npx", ["-y", "@cmdforge/tip-manager"], {
+    cwd,
     detached: true,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["ignore", stdout.fd, stderr.fd, "ipc"],
     windowsHide: true,
   });
 
-  child.stdout?.pipe(stdout);
-  child.stderr?.pipe(stderr);
-
-  child.unref();
-
-  if (!child.pid) {
-    throw new Error("Failed to start daemon.");
-  }
-
-  const info = await waitForDaemonReady(child.pid);
-
-  await fs.writeFile(infoFile, JSON.stringify(info, null, 2), "utf8");
-
-  return info;
-}
-
-async function waitForDaemonReady(pid: number): Promise<DaemonInfo> {
-  // Easiest: have daemon print its URL as first stdout line, or write its own ready file.
-  // Example assumes daemon writes JSON to a known file once listening.
-  const readyFile = path.join(stateDir, "ready.json");
-
-  const deadline = Date.now() + 15_000;
-
-  while (Date.now() < deadline) {
-    try {
-      const raw = await fs.readFile(readyFile, "utf8");
-      const { url } = JSON.parse(raw);
-
-      if (url && await canConnectToWebSocketUrl(url)) {
-        return { pid, url };
-      }
-    } catch {
-      // not ready yet
+  try {
+    if (!child.pid) {
+      throw new Error("Failed to start daemon.");
     }
 
-    await sleep(100);
-  }
+    const info = await waitForDaemonReadyOverIpc(child);
 
-  throw new Error("Daemon did not become ready in time.");
+    await fs.writeFile(await paths.info(), JSON.stringify(info, null, 2), "utf8");
+    child.unref();
+
+    return info;
+  } finally {
+    await stdout.close();
+    await stderr.close();
+  }
 }
 
-async function acquireLock(): Promise<void> {
+async function waitForDaemonReadyOverIpc(
+  child: ReturnType<typeof spawn>,
+): Promise<DaemonInfo> {
+  const deadline = Date.now() + 15_000;
+
+  return await new Promise<DaemonInfo>((resolve, reject) => {
+    let settled = false;
+
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn();
+    };
+
+    const cleanup = () => {
+      child.off("message", onMessage);
+      child.off("error", onError);
+      child.off("exit", onExit);
+      clearTimeout(timeout);
+    };
+
+    const onMessage = (value: unknown) => {
+      if (!isDaemonInfo(value)) {
+        return;
+      }
+
+      finish(() => resolve(value));
+    };
+
+    const onError = (error: Error) => {
+      finish(() => reject(error));
+    };
+
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      finish(() => {
+        reject(
+          new Error(
+            `Daemon exited before reporting ready state (${signal ?? code ?? "unknown"})`,
+          ),
+        );
+      });
+    };
+
+    const timeout = setTimeout(() => {
+      finish(() => reject(new Error("Daemon did not become ready in time.")));
+    }, Math.max(0, deadline - Date.now()));
+
+    child.on("message", onMessage);
+    child.on("error", onError);
+    child.on("exit", onExit);
+  });
+}
+
+type StartupLock = {
+  file: FileHandle;
+  token: string;
+};
+
+async function acquireLockOrReadExistingDaemon(): Promise<StartupLock | DaemonInfo> {
   const deadline = Date.now() + 10_000;
+  const lockPath = await paths.lock();
+  const token = `${process.pid}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
 
   while (Date.now() < deadline) {
+    const existing = await readExistingDaemon();
+    if (existing) {
+      return existing;
+    }
+
     try {
-      await fs.mkdir(lockDir);
-      return;
-    } catch {
+      const file = await fs.open(lockPath, "wx");
+      await file.writeFile(token, "utf8");
+      return { file, token };
+    } catch (error) {
+      if (!isAlreadyExistsError(error)) {
+        throw error;
+      }
+
+      if (await clearStaleLock(lockPath)) {
+        continue;
+      }
+
+      const existingAfterContention = await readExistingDaemon();
+      if (existingAfterContention) {
+        return existingAfterContention;
+      }
+
       await sleep(50);
     }
   }
@@ -136,8 +197,41 @@ async function acquireLock(): Promise<void> {
   throw new Error("Timed out waiting for daemon startup lock.");
 }
 
-async function releaseLock(): Promise<void> {
-  await fs.rm(lockDir, { recursive: true, force: true });
+async function releaseLock(lock: StartupLock): Promise<void> {
+  try {
+    await lock.file.close();
+  } catch {
+    // ignore
+  }
+
+  try {
+    const contents = await fs.readFile(await paths.lock(), "utf8");
+    if (contents === lock.token) {
+      await fs.rm(await paths.lock(), { force: true });
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function clearStaleLock(lockPath: string): Promise<boolean> {
+  try {
+    const contents = await fs.readFile(lockPath, "utf8");
+    const ownerPid = parseLockOwnerPid(contents);
+
+    if (ownerPid !== undefined && await isProcessAlive(ownerPid)) {
+      return false;
+    }
+
+    await fs.rm(lockPath, { force: true });
+    return true;
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return true;
+    }
+
+    return false;
+  }
 }
 
 async function isProcessAlive(pid: number): Promise<boolean> {
@@ -174,6 +268,31 @@ async function canConnectToWebSocketUrl(url: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function isAlreadyExistsError(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";
+}
+
+function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+}
+
+function parseLockOwnerPid(contents: string): number | undefined {
+  const [first] = contents.trim().split(":");
+  const pid = Number.parseInt(first ?? "", 10);
+  return Number.isInteger(pid) ? pid : undefined;
+}
+
+function isDaemonInfo(value: unknown): value is DaemonInfo {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "pid" in value &&
+    "url" in value &&
+    Number.isInteger((value as { pid: unknown }).pid) &&
+    typeof (value as { url: unknown }).url === "string"
+  );
 }
 
 function sleep(ms: number): Promise<void> {

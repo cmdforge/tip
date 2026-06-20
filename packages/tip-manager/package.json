@@ -33,13 +33,12 @@
     }
   },
   "bin": {
-    "manage": "./dist/bin/manage.js"
+    "tip-manager": "./dist/bin/daemon.js"
   },
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
-    "test": "node --test --import tsx src/**/*.test.ts",
-    "generate": "npx -y openapi-typescript https://registry.modelcontextprotocol.io/openapi.yaml --root-types --root-types-no-schema-prefix -o ./src/shared/registry/api.ts"
+    "test": "node --test --import tsx src/**/*.test.ts"
   },
   "dependencies": {
     "openapi-fetch": "0.17.0",
