@@ -82,7 +82,7 @@ async function main() {
   }
 
   const tarballPath = path.join(tempDir, tarballName);
-  const baseArgs = ["dlx", tarballPath, "ui", "open", serverUrl];
+const baseArgs = ["dlx", tarballPath, "ui", "open", serverUrl];
   const first = await run("pnpm", baseArgs, tempDir);
 
   if (first.code === 0) {

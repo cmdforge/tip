@@ -5,7 +5,7 @@
   "type": "module",
   "bin": {
     "ui": "./scripts/tip-ui.mjs",
-    "manage": "./packages/mcp-manager/dist/bin/manage.js"
+    "manage": "./packages/tip-manager/dist/bin/manage.js"
   },
   "scripts": {
     "build": "pnpm -r build",
@@ -14,7 +14,7 @@
     "test": "pnpm -r test",
     "tip-ui": "node ./scripts/tip-ui.mjs",
     "test:ui-route": "node ./scripts/test-ui-route.mjs",
-    "ui-local": "pnpm --filter @cmdforge/tip-ui tauri dev -- -- --server https://mcp.dev.azure.com"
+    "ui-local": "node ./scripts/tip-ui.mjs open https://mcp.dev.azure.com"
   },
   "devDependencies": {
     "@types/node": "25.9.3",

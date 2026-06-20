@@ -2,10 +2,12 @@
 
 Tool Interface Protocol (TIP) is a small set of helpers for defining tool contracts once and then reusing them across MCP servers, MCP clients, and a desktop UI shell.
 
-The repo currently has two main parts:
+The repo currently has a few main parts:
 
 - [`packages/tip`](/Users/yakisoba/Documents/GitHub/tip/packages/tip): protocol types and MCP/TIP helpers
-- [`apps/tip-ui`](/Users/yakisoba/Documents/GitHub/tip/apps/tip-ui): a Tauri shell for browsing and rendering MCP tools
+- [`apps/tip-ui`](/Users/yakisoba/Documents/GitHub/tip/apps/tip-ui): an Electron shell for browsing and rendering MCP tools
+- [`packages/jsonrpc`](/Users/yakisoba/Documents/GitHub/tip/packages/jsonrpc): lower-level JSON-RPC transport pieces
+- [`packages/tip-manager`](/Users/yakisoba/Documents/GitHub/tip/packages/tip-manager): TIP server management helpers and CLI
 
 ## What exists now
 

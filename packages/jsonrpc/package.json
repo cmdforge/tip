@@ -1,13 +1,13 @@
 {
-  "name": "@cmdforge/tip",
-  "version": "0.0.3",
+  "name": "@cmdforge/jsonrpc",
+  "version": "0.0.2",
+  "license": "MIT",
+  "type": "module",
   "author": {
     "name": "Fluttershy",
     "url": "https://github.com/Fluttershy"
   },
-  "license": "MIT",
-  "type": "module",
-  "description": "Tool Interface Protocol (TIP) is a small set of helpers for defining tool contracts once and then reusing them across MCP servers, MCP clients, and a desktop UI shell.",
+  "description": "Manages MCP server listings and process management.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cmdforge/tip.git"
@@ -34,14 +34,15 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "node --import tsx --test src/**/*.test.ts"
+    "test": "node --test --import tsx src/**/*.test.ts"
   },
   "dependencies": {
-    "@cmdforge/jsonrpc": "workspace:*",
-    "@modelcontextprotocol/sdk": "1.29.0",
-    "@modelcontextprotocol/ext-apps": "1.7.4",
-    "@mcp-ui/server": "6.1.0",
-    "zod": "4.4.3"
+    "vscode-jsonrpc": "^9.0.0",
+    "vscode-ws-jsonrpc": "^3.5.0",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
   },
   "publishConfig": {
     "access": "public"

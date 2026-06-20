@@ -1,13 +1,13 @@
 {
-  "name": "@cmdforge/tip",
-  "version": "0.0.3",
+  "name": "@cmdforge/tip-manager",
+  "version": "0.0.2",
+  "license": "MIT",
+  "type": "module",
   "author": {
     "name": "Fluttershy",
     "url": "https://github.com/Fluttershy"
   },
-  "license": "MIT",
-  "type": "module",
-  "description": "Tool Interface Protocol (TIP) is a small set of helpers for defining tool contracts once and then reusing them across MCP servers, MCP clients, and a desktop UI shell.",
+  "description": "Manages TIP server listings, registrations, and process brokering.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cmdforge/tip.git"
@@ -32,16 +32,22 @@
       "import": "./dist/server/index.js"
     }
   },
+  "bin": {
+    "manage": "./dist/bin/manage.js"
+  },
   "scripts": {
     "build": "tsc",
-    "test": "node --import tsx --test src/**/*.test.ts"
+    "prepare": "npm run build",
+    "test": "node --test --import tsx src/**/*.test.ts",
+    "generate": "npx -y openapi-typescript https://registry.modelcontextprotocol.io/openapi.yaml --root-types --root-types-no-schema-prefix -o ./src/shared/registry/api.ts"
   },
   "dependencies": {
+    "openapi-fetch": "0.17.0",
     "@cmdforge/jsonrpc": "workspace:*",
-    "@modelcontextprotocol/sdk": "1.29.0",
-    "@modelcontextprotocol/ext-apps": "1.7.4",
-    "@mcp-ui/server": "6.1.0",
-    "zod": "4.4.3"
+    "@cmdforge/tip": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
   },
   "publishConfig": {
     "access": "public"
