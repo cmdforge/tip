@@ -2,10 +2,15 @@ import { Box, Loader, Stack, Title } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { ServerSelection } from "./components/ServerSelection";
 import { ToolSelection } from "./components/ToolSelection";
-import { AppStoreProvider, useAppStore } from "./state/appStore";
+import { AppStoreProvider, type ManagerDaemonInfo, useAppStore } from "./state/appStore";
 
 type LaunchOptions = {
   serverUrl?: string;
+};
+
+type StartupState = {
+  daemonInfo: ManagerDaemonInfo | null;
+  launchOptions: LaunchOptions;
 };
 
 function AppShell() {
@@ -29,14 +34,20 @@ function AppShell() {
 }
 
 function App() {
-  const [launchOptions, setLaunchOptions] = useState<LaunchOptions | null>(null);
+  const [startupState, setStartupState] = useState<StartupState | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    void window.api.getLaunchOptions().then((value) => {
+    void Promise.all([
+      window.api.getLaunchOptions(),
+      window.api.getManagerDaemonInfo(),
+    ]).then(([launchOptions, daemonInfo]) => {
       if (!cancelled) {
-        setLaunchOptions(value);
+        setStartupState({
+          daemonInfo,
+          launchOptions,
+        });
       }
     });
 
@@ -45,7 +56,7 @@ function App() {
     };
   }, []);
 
-  if (!launchOptions) {
+  if (!startupState) {
     return (
       <Box className="flex min-h-screen items-center justify-center bg-stone-50">
         <Loader color="dark" />
@@ -54,7 +65,10 @@ function App() {
   }
 
   return (
-    <AppStoreProvider initialServerUrl={launchOptions.serverUrl ?? ""}>
+    <AppStoreProvider
+      initialDaemonInfo={startupState.daemonInfo}
+      initialServerUrl={startupState.launchOptions.serverUrl ?? ""}
+    >
       <AppShell />
     </AppStoreProvider>
   );

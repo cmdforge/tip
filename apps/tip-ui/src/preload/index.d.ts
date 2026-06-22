@@ -4,8 +4,14 @@ type LaunchOptions = {
   serverUrl?: string
 }
 
+type DaemonInfo = {
+  pid: number
+  url: string
+}
+
 interface Api {
   getLaunchOptions(): Promise<LaunchOptions>
+  getManagerDaemonInfo(): Promise<DaemonInfo | null>
 }
 
 declare global {

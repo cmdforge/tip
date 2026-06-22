@@ -4,7 +4,13 @@ import { createWithEqualityFn } from "zustand/traditional";
 import { shallow } from "zustand/shallow";
 import { appToolName } from "@cmdforge/tip";
 
+export type ManagerDaemonInfo = {
+  pid: number;
+  url: string;
+};
+
 type AppState = {
+  daemonInfo: ManagerDaemonInfo | null;
   serverUrl: string;
   tools: Tool[];
   selectedToolName: string | null;
@@ -16,6 +22,7 @@ type AppState = {
 };
 
 type AppActions = {
+  setDaemonInfo(daemonInfo: ManagerDaemonInfo | null): void;
   setServerUrl(serverUrl: string): void;
   startConnecting(): void;
   connectionSucceeded(tools: Tool[]): void;
@@ -56,6 +63,9 @@ export function createAppStore(initialState?: Partial<AppState>) {
   return createWithEqualityFn<AppStoreState>()(
     (set) => {
       const actions: AppActions = {
+        setDaemonInfo(daemonInfo) {
+          set({ daemonInfo });
+        },
         setServerUrl(serverUrl) {
           set({ serverUrl });
         },
@@ -119,6 +129,7 @@ export function createAppStore(initialState?: Partial<AppState>) {
       };
 
       return {
+        daemonInfo: initialState?.daemonInfo ?? null,
         serverUrl: initialState?.serverUrl ?? "",
         tools: initialState?.tools ?? [],
         selectedToolName: initialState?.selectedToolName ?? null,
@@ -139,16 +150,22 @@ const AppStoreContext = createContext<AppStore | null>(null);
 export function AppStoreProvider({
   children,
   initialServerUrl,
-}: PropsWithChildren<{ initialServerUrl: string }>) {
+  initialDaemonInfo,
+}: PropsWithChildren<{ initialServerUrl: string; initialDaemonInfo: ManagerDaemonInfo | null }>) {
   const storeRef = useRef<AppStore | null>(null);
 
   if (!storeRef.current) {
-    storeRef.current = createAppStore({ serverUrl: initialServerUrl });
+    storeRef.current = createAppStore({
+      daemonInfo: initialDaemonInfo,
+      serverUrl: initialServerUrl,
+    });
   }
 
   useEffect(() => {
-    storeRef.current?.getState().actions.setServerUrl(initialServerUrl);
-  }, [initialServerUrl]);
+    const actions = storeRef.current?.getState().actions;
+    actions?.setServerUrl(initialServerUrl);
+    actions?.setDaemonInfo(initialDaemonInfo);
+  }, [initialDaemonInfo, initialServerUrl]);
 
   return (
     <AppStoreContext.Provider value={storeRef.current}>

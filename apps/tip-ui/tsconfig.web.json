@@ -7,6 +7,7 @@
     "src/preload/*.d.ts"
   ],
   "compilerOptions": {
+    "outDir": "./node_modules/.tmp/web",
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo",
     "composite": true,
     "jsx": "react-jsx",

@@ -2,9 +2,14 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { ensureManagerRunning, type DaemonInfo } from '@cmdforge/tip-manager/server'
 
 type LaunchOptions = {
   serverUrl?: string
+}
+
+type StartupState = {
+  daemonInfo: DaemonInfo | null
 }
 
 function getLaunchOptions(argv: string[]): LaunchOptions {
@@ -21,6 +26,9 @@ function getLaunchOptions(argv: string[]): LaunchOptions {
 }
 
 const launchOptions = getLaunchOptions(process.argv)
+let startupState: StartupState = {
+  daemonInfo: null
+}
 
 function resolveWindowIcon(): string | undefined {
   const candidates = [
@@ -72,7 +80,7 @@ function createWindow(): void {
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('io.github.cmdforge.tip-ui')
 
@@ -83,9 +91,20 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // IPC test
   ipcMain.on('ping', () => console.log('pong'))
   ipcMain.handle('get-launch-options', () => launchOptions)
+  ipcMain.handle('get-manager-daemon-info', () => startupState.daemonInfo)
+
+  try {
+    startupState = {
+      daemonInfo: await ensureManagerRunning()
+    }
+  } catch (error) {
+    console.error('Failed to start tip manager daemon:', error)
+    startupState = {
+      daemonInfo: null
+    }
+  }
 
   createWindow()
 

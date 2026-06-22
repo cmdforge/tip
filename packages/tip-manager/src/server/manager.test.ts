@@ -99,6 +99,32 @@ test("connectOfficialServer accepts an explicit version parameter", async () => 
   assert.equal(connected.url, "ws://127.0.0.1:4000/");
 });
 
+test("getOfficialServers does not load the registry until first use", async () => {
+  let loadCount = 0;
+  const manager = createManagerInstance({
+    async loadOfficialServers() {
+      loadCount += 1;
+      return [
+        officialEntry("io.github.cmdforge/weather", "1.1.0", true, {
+          remotes: [{ type: "websocket", url: "ws://127.0.0.1:4100/" }],
+        }),
+      ];
+    },
+  });
+
+  assert.equal(loadCount, 0);
+
+  const first = await manager.getOfficialServers({});
+  assert.deepEqual(first, { ready: false });
+  assert.equal(loadCount, 1);
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const second = await manager.getOfficialServers({});
+  assert.equal(second.ready, true);
+  assert.equal(loadCount, 1);
+});
+
 test("connectOfficialServer reports that package targets still need a bridge", async () => {
   const manager = createManagerInstance({
     async loadOfficialServers() {

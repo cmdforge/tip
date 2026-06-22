@@ -6,6 +6,7 @@
     "src/preload/**/*"
   ],
   "compilerOptions": {
+    "outDir": "./node_modules/.tmp/node",
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo",
     "composite": true,
     "types": [

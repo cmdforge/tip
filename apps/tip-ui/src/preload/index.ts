@@ -3,10 +3,18 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
+type DaemonInfo = {
+  pid: number
+  url: string
+}
+
 function makeApi(): Window['api'] {
   return {
     getLaunchOptions() {
       return ipcRenderer.invoke('get-launch-options')
+    },
+    getManagerDaemonInfo() {
+      return ipcRenderer.invoke('get-manager-daemon-info') as Promise<DaemonInfo | null>
     }
   }
 }

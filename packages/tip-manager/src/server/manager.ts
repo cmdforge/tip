@@ -64,22 +64,27 @@ export function createManagerInstance(
   const tipServers = new Map<string, ServerJson>();
   const packageConnections = new Map<string, Promise<StartedPackageBridge>>();
   let officialState: OfficialState | undefined;
+  let officialReady: Promise<OfficialState> | undefined;
   const loadServers = options.loadOfficialServers ?? getAllServers;
   const startBridge = options.startPackageBridge ?? startPackageBridge;
 
-  const officialReady = loadOfficialState(loadServers).then((state) => {
-    officialState = state;
-    const params: OfficialServersReadyParams = {
-      count: state.latestServers.length,
-      loadedAt: state.loadedAt,
-    };
+  const ensureOfficialState = () => {
+    officialReady ??= loadOfficialState(loadServers).then((state) => {
+      officialState = state;
+      const params: OfficialServersReadyParams = {
+        count: state.latestServers.length,
+        loadedAt: state.loadedAt,
+      };
 
-    for (const peer of sessions) {
-      peer.outbound.notifications.servers.official.ready(params);
-    }
+      for (const peer of sessions) {
+        peer.outbound.notifications.servers.official.ready(params);
+      }
 
-    return state;
-  });
+      return state;
+    });
+
+    return officialReady;
+  };
 
   return {
     addSession(peer) {
@@ -92,13 +97,6 @@ export function createManagerInstance(
         });
         return;
       }
-
-      void officialReady.then((state) => {
-        peer.outbound.notifications.servers.official.ready({
-          count: state.latestServers.length,
-          loadedAt: state.loadedAt,
-        });
-      });
     },
     registerTipServer(params) {
       tipServers.set(params.server.name, params.server);
@@ -113,8 +111,10 @@ export function createManagerInstance(
     },
     async getOfficialServers(params) {
       if (!officialState) {
+        const loading = ensureOfficialState();
+
         if (params.cursor || params.search || params.category) {
-          await officialReady;
+          await loading;
         } else {
           return {
             ready: false,
@@ -122,7 +122,7 @@ export function createManagerInstance(
         }
       }
 
-      const state = officialState ?? await officialReady;
+      const state = officialState ?? await ensureOfficialState();
       const filtered = filterOfficialServers(state.latestServers, params);
       const start = parseCursor(params.cursor);
       const servers = filtered.slice(start, start + PAGE_SIZE);
@@ -145,7 +145,7 @@ export function createManagerInstance(
       };
     },
     async connectOfficialServer(params) {
-      const state = officialState ?? await officialReady;
+      const state = officialState ?? await ensureOfficialState();
       const entry = resolveOfficialEntry(state, params);
 
       if (!entry) {
