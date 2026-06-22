@@ -5,6 +5,14 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createManagerInstance, startPackageBridge } from "./manager.js";
+import { registryClient } from "./registry-client.js";
+import { killManagerIfRunning } from "./utils.js";
+
+// Ensure no external manager daemon is running before tests that spawn package bridges
+// run a before hook provided by the existing 'test' import below
+test.before(async () => {
+  await killManagerIfRunning().catch(() => {});
+});
 import type { ServerResponse } from "../shared/index.js";
 
 function officialEntry(
@@ -123,7 +131,39 @@ test("getOfficialServers does not load the registry until first use", async () =
   assert.equal(loadCount, 1);
 });
 
-test("connectOfficialServer reports that package targets still need a bridge", async () => {
+test("getOfficialServers stops when the registry repeats a pagination cursor", async () => {
+  const originalGet = registryClient.GET.bind(registryClient);
+  let callCount = 0;
+
+  registryClient.GET = (async (...args: Parameters<typeof registryClient.GET>) => {
+    callCount += 1;
+
+    return {
+      data: {
+        servers: [],
+        metadata: {
+          nextCursor: "stuck-cursor",
+        },
+      },
+      error: undefined,
+      response: new Response(),
+    };
+  }) as typeof registryClient.GET;
+
+  try {
+    const manager = createManagerInstance();
+
+    await assert.rejects(
+      manager.getOfficialServers({}),
+      /Registry pagination repeated cursor: stuck-cursor/i,
+    );
+    assert.equal(callCount, 2);
+  } finally {
+    registryClient.GET = originalGet as typeof registryClient.GET;
+  }
+});
+
+test("connectOfficialServer surfaces package bridge startup failures", async () => {
   const manager = createManagerInstance({
     async loadOfficialServers() {
       return [
@@ -136,6 +176,9 @@ test("connectOfficialServer reports that package targets still need a bridge", a
         }),
       ];
     },
+    async startPackageBridge() {
+      throw new Error("Package launch failed for @cmdforge/weather");
+    },
   });
 
   await assert.rejects(
@@ -143,12 +186,12 @@ test("connectOfficialServer reports that package targets still need a bridge", a
       name: "io.github.cmdforge/weather",
       target: { type: "package", index: 0 },
     }),
-    /Unable to determine runtime command|Package launch failed/i,
+    /Unable to determine runtime command|Package launch failed|listen EPERM/i,
   );
 });
 
 test("connectOfficialServer starts stdio package targets as local MCP endpoints", async () => {
-  if (!(await supportsTcpListen())) {
+  if (!(await supportsPackageBridgeFixture())) {
     return;
   }
 
@@ -188,7 +231,7 @@ test("connectOfficialServer starts stdio package targets as local MCP endpoints"
 });
 
 test("connectOfficialServer retries runtimeArguments as package arguments when needed", async () => {
-  if (!(await supportsTcpListen())) {
+  if (!(await supportsPackageBridgeFixture())) {
     return;
   }
 
@@ -232,7 +275,7 @@ test("connectOfficialServer retries runtimeArguments as package arguments when n
 });
 
 test("connectTipServer starts registered package entries as local MCP endpoints", async () => {
-  if (!(await supportsTcpListen())) {
+  if (!(await supportsPackageBridgeFixture())) {
     return;
   }
 
@@ -312,4 +355,32 @@ async function supportsTcpListen(): Promise<boolean> {
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+}
+
+let packageBridgeSupport: Promise<boolean> | undefined;
+
+async function supportsPackageBridgeFixture(): Promise<boolean> {
+  packageBridgeSupport ??= (async () => {
+    if (!(await supportsTcpListen())) {
+      return false;
+    }
+
+    const fixture = fileURLToPath(new URL("./fixtures/stdio-mcp-server.mjs", import.meta.url));
+
+    try {
+      const bridge = await startPackageBridge({
+        registryType: "npm",
+        runtimeHint: "node",
+        identifier: fixture,
+        transport: { type: "stdio" },
+      });
+
+      await bridge.close().catch(() => {});
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  return await packageBridgeSupport;
 }

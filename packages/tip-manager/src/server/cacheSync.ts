@@ -41,6 +41,7 @@ export function startCacheSync(peer?: ProtocolPeer<ManagerProtocol, 'server'>) {
       let maxUpdatedAtMs: number | undefined = undefined;
 
       let cursor: string | undefined = undefined;
+      const seenCursors = new Set<string>();
 
       do {
         const { data, error } = await registryClient.GET('/v0.1/servers', {
@@ -97,7 +98,18 @@ export function startCacheSync(peer?: ProtocolPeer<ManagerProtocol, 'server'>) {
           }
         }
 
-        cursor = data.metadata?.nextCursor as string | undefined;
+        const nextCursor = data.metadata?.nextCursor as string | undefined;
+        if (!nextCursor) {
+          cursor = undefined;
+          continue;
+        }
+
+        if (seenCursors.has(nextCursor)) {
+          throw new Error(`Registry pagination repeated cursor: ${nextCursor}`);
+        }
+
+        seenCursors.add(nextCursor);
+        cursor = nextCursor;
       } while (cursor);
 
       // Compute new updated_since: use maxUpdatedAt if available, otherwise fallback to yesterday

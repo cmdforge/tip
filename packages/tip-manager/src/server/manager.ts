@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse as HttpServerResponse } from "node:http";
 import type { Buffer } from "node:buffer";
+import { randomUUID } from "node:crypto";
 import type { ProtocolPeer } from "@cmdforge/jsonrpc";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -13,14 +14,12 @@ import type {
   ManagerProtocol,
   OfficialServerConnectParams,
   OfficialServersListParams,
-  OfficialServersListResult,
   OfficialServersReadyParams,
   TipServerConnectParams,
   TipServerRegisterParams,
   TipServersChangedParams,
-  TipServersListResult,
 } from "../shared/protocol.js";
-import { getAllServers } from "./getAllServers.js";
+import { registryClient } from './registry-client.js';
 
 const PAGE_SIZE = 100;
 
@@ -36,8 +35,8 @@ export interface ManagerInstance {
 }
 
 interface OfficialState {
-  allServers: Awaited<ReturnType<typeof getAllServers>>;
-  latestServers: Awaited<ReturnType<typeof getAllServers>>;
+  allServers: ServerResponse[];
+  latestServers: ServerResponse[];
   loadedAt: string;
 }
 
@@ -56,7 +55,7 @@ export function getManagerInstance(): ManagerInstance {
 
 export function createManagerInstance(
   options: {
-    loadOfficialServers?: typeof getAllServers;
+    loadOfficialServers?: () => Promise<ServerResponse[]>;
     startPackageBridge?: (
       pkg: NonNullable<ServerJson["packages"]>[number],
     ) => Promise<StartedPackageBridge>;
@@ -79,7 +78,43 @@ export function createManagerInstance(
   let cacheReadyResolve: (() => void) | undefined;
   cacheReady = new Promise((res) => { cacheReadyResolve = res; });
 
-  const loadServers = options.loadOfficialServers ?? getAllServers;
+  const defaultLoadServers = async (): Promise<ServerResponse[]> => {
+    const client = registryClient;
+    const servers: ServerResponse[] = [];
+    let cursor: string | undefined;
+    const seenCursors = new Set<string>();
+
+    do {
+      const { data, error } = await client.GET('/v0.1/servers', {
+        params: {
+          query: {
+            limit: 100,
+            ...(cursor ? { cursor } : {}),
+          },
+        },
+      });
+
+      if (error) throw new Error(JSON.stringify(error, null, ' '));
+      if (data.servers) servers.push(...data.servers as ServerResponse[]);
+
+      const nextCursor = data.metadata?.nextCursor as string | undefined;
+      if (!nextCursor) {
+        cursor = undefined;
+        continue;
+      }
+
+      if (seenCursors.has(nextCursor)) {
+        throw new Error(`Registry pagination repeated cursor: ${nextCursor}`);
+      }
+
+      seenCursors.add(nextCursor);
+      cursor = nextCursor;
+    } while (cursor);
+
+    return servers;
+  };
+
+  const loadServers = options.loadOfficialServers ?? defaultLoadServers;
   const startBridge = options.startPackageBridge ?? startPackageBridge;
 
   const ensureOfficialState = () => {
@@ -92,6 +127,13 @@ export function createManagerInstance(
 
       for (const peer of sessions) {
         peer.outbound.notifications.servers.official.ready(params);
+      }
+
+      // If cacheReady is still pending, resolve it because we now have authoritative data
+      if (typeof cacheReadyResolve === 'function') {
+        cacheReadyResolve();
+        cacheReadyResolve = undefined;
+        cacheReady = Promise.resolve();
       }
 
       return state;
@@ -175,17 +217,15 @@ export function createManagerInstance(
     },
 
     async getOfficialServers(params) {
-      // Always wait for startup cache to complete so handlers can serve consistent data
-      await cacheReady;
-
       let candidates: ServerResponse[] = [];
       let loadedAt = new Date().toISOString();
 
       if (officialState) {
+        // Use authoritative state if already loaded
         candidates = officialState.latestServers as ServerResponse[];
         loadedAt = officialState.loadedAt;
       } else if (cachedIndexArray.length > 0) {
-        // Build candidates array from cachedServers (latest preferred)
+        // Use cached disk entries if present
         for (const key of cachedIndexArray) {
           const entry = cachedServers[key];
           if (!entry) continue;
@@ -193,7 +233,7 @@ export function createManagerInstance(
           if (serverEntry) candidates.push(serverEntry as ServerResponse);
         }
       } else {
-        // Fallback to loading from remote if nothing on disk
+        // No authoritative or cached data; trigger loading from remote
         const state = await ensureOfficialState();
         candidates = state.latestServers as ServerResponse[];
         loadedAt = state.loadedAt;
@@ -283,7 +323,7 @@ export function createManagerInstance(
   };
 }
 
-async function loadOfficialState(loadServers: typeof getAllServers): Promise<OfficialState> {
+async function loadOfficialState(loadServers: () => Promise<ServerResponse[]>): Promise<OfficialState> {
   const allServers = await loadServers();
   const latestServers = allServers.filter(
     (server) =>
@@ -298,7 +338,7 @@ async function loadOfficialState(loadServers: typeof getAllServers): Promise<Off
 }
 
 function filterOfficialServers(
-  servers: Awaited<ReturnType<typeof getAllServers>>,
+  servers: ServerResponse[],
   params: OfficialServersListParams,
 ) {
   const search = params.search?.trim().toLowerCase();
@@ -321,7 +361,7 @@ function filterOfficialServers(
 }
 
 function matchesSearch(
-  entry: NonNullable<Awaited<ReturnType<typeof getAllServers>>[number]>,
+  entry: NonNullable<ServerResponse>,
   search: string,
 ) {
   const haystack = [
@@ -341,7 +381,7 @@ function matchesSearch(
 }
 
 function entryCategories(
-  entry: NonNullable<Awaited<ReturnType<typeof getAllServers>>[number]>,
+  entry: NonNullable<ServerResponse>,
 ) {
   const categories = new Set<string>();
 
@@ -538,17 +578,21 @@ async function startPackageBridgeAttempt(
     stderr: "pipe",
   });
   const httpTransport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
+    sessionIdGenerator: () => randomUUID(),
   });
 
   let closed = false;
   let stderrText = "";
   let rejectClosed!: (reason?: unknown) => void;
   let resolveClosed!: () => void;
+  let resolveChildClosed!: () => void;
 
   const closedPromise = new Promise<void>((resolve, reject) => {
     resolveClosed = resolve;
     rejectClosed = reject;
+  });
+  const childClosedPromise = new Promise<void>((resolve) => {
+    resolveChildClosed = resolve;
   });
 
   const finishClosed = (error?: unknown) => {
@@ -574,6 +618,7 @@ async function startPackageBridgeAttempt(
   });
 
   childTransport.onclose = () => {
+    resolveChildClosed();
     finishClosed(new Error(formatLaunchFailure(pkg.identifier, command, args, stderrText)));
   };
   childTransport.onerror = (error: Error) => {
@@ -619,6 +664,11 @@ async function startPackageBridgeAttempt(
     } finally {
       try {
         await childTransport.close();
+        await withTimeout(
+          childClosedPromise,
+          2000,
+          `Timed out waiting for package process to exit: ${pkg.identifier}`,
+        ).catch(() => {});
       } finally {
         if (httpServer) {
           await closeHttpServer(httpServer);
@@ -627,10 +677,27 @@ async function startPackageBridgeAttempt(
     }
   };
 
+  // helper to enforce timeouts on async operations to avoid test hangs
+  const withTimeout = async <T>(p: Promise<T>, ms: number, message: string) => {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      return await Promise.race([
+        p,
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(message)), ms);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
   try {
-    await childTransport.start();
-    await waitForStableStartup(closedPromise);
-    await httpTransport.start();
+    // ensure child transport starts within 5s
+    await withTimeout(childTransport.start(), 5000, 'Child transport start timed out');
+    await withTimeout(waitForStableStartup(closedPromise), 5000, 'Waiting for stable startup timed out');
+    // ensure http transport starts within 5s
+    await withTimeout(httpTransport.start(), 5000, 'HTTP transport start timed out');
 
     const pathname = "/mcp";
     httpServer = createServer(async (request, response) => {

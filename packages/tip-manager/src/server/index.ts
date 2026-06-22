@@ -1,5 +1,4 @@
 export * from './registry-client.js';
-export * from './getAllServers.js';
 export * from './utils.js';
 
 import { invalidParamsError } from '@cmdforge/jsonrpc';

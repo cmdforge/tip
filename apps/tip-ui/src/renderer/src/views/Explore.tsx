@@ -35,12 +35,13 @@ export default function ExploreView() {
 
         if (cancelled) return;
 
-        if (result.ready === false) {
-          setPages([]);
-          setNextCursor(null);
-        } else {
+        // unified result: { type, total, nextCursor?, servers }
+        if (result && result.type === 'official') {
           setPages([Array.isArray(result.servers) ? result.servers : []]);
           setNextCursor(result.nextCursor ?? null);
+        } else {
+          setPages([]);
+          setNextCursor(null);
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -112,13 +113,17 @@ export default function ExploreView() {
         ) : (
           <>
             <Box style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 12 }}>
-              {currentServers.map((s, idx) => (
-                <Card key={idx} shadow="sm" radius="md" p="sm" onClick={() => openDetails(s)} style={{ cursor: 'pointer' }}>
-                  <Text fw={700}>{s.server?.name ?? s.serverName ?? s.name ?? "Unnamed"}</Text>
-                  <Text size="sm" color="dimmed">{s.server?.version ?? s.version ?? ""}</Text>
-                  <Text size="sm" mt="8px">{s.server?.summary ?? s.summary ?? ""}</Text>
-                </Card>
-              ))}
+              {currentServers.length > 0 ? (
+                currentServers.map((s) => (
+                  <Card key={s.name} shadow="sm" radius="md" p="sm" onClick={() => openDetails(s)} style={{ cursor: 'pointer' }}>
+                    <Text fw={700}>{s.name ?? "Unnamed"}</Text>
+                    <Text size="sm" color="dimmed">{s.version ?? ""}</Text>
+                    <Text size="sm" mt="8px">{s.description ?? ""}</Text>
+                  </Card>
+                ))
+              ) : (
+                <Text color="dimmed">No servers found</Text>
+              )}
             </Box>
 
             <Group style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }} mt="md">
@@ -148,23 +153,23 @@ export default function ExploreView() {
         )}
       </Stack>
 
-      <Modal opened={detailOpen} onClose={closeDetails} fullScreen title={selectedServer ? (selectedServer.server?.name ?? selectedServer.serverName ?? selectedServer.name) : "Details"}>
+      <Modal opened={detailOpen} onClose={closeDetails} fullScreen title={selectedServer?.name ?? "Details"}>
         {selectedServer ? (
           <Stack gap="md">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <Text fw={700}>{selectedServer.server?.name ?? selectedServer.serverName ?? selectedServer.name}</Text>
-                <Text size="sm" color="dimmed">{selectedServer.server?.version ?? selectedServer.version ?? ""}</Text>
+                <Text fw={700}>{selectedServer?.name}</Text>
+                <Text size="sm" color="dimmed">{selectedServer?.version ?? ""}</Text>
               </div>
               <div>
-                {selectedServer.server?.category && <Badge style={{ marginRight: 6 }}>{selectedServer.server.category}</Badge>}
-                {selectedServer.server?.homepage && (
-                  <a href={selectedServer.server.homepage} target="_blank" rel="noreferrer">Homepage</a>
+                {selectedServer?.category && <Badge style={{ marginRight: 6 }}>{selectedServer.category}</Badge>}
+                {selectedServer?.websiteUrl && (
+                  <a href={selectedServer.websiteUrl} target="_blank" rel="noreferrer">Homepage</a>
                 )}
               </div>
             </div>
 
-            <Text size="sm">{selectedServer.server?.summary ?? selectedServer.summary ?? "No summary"}</Text>
+            <Text size="sm">{selectedServer?.description ?? "No description"}</Text>
 
             <Text fw={600}>Raw JSON</Text>
             <ScrollArea style={{ height: '60vh' }}>

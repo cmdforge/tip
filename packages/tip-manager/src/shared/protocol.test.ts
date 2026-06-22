@@ -216,9 +216,11 @@ test("protocol server exposes nested outbound APIs and registers inbound request
     url: `ws://tip/${gitprofileServer.name}`,
   });
 
-  const tipList = connection.requests.get("servers/tip/list");
-  assert.ok(tipList);
-  assert.deepEqual(await tipList(), {
+  assert.deepEqual(await listServers({
+    type: "tip",
+  }), {
+    type: "tip",
+    total: 1,
     servers: [gitprofileServer],
   });
 

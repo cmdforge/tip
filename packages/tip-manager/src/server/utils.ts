@@ -490,6 +490,47 @@ export async function restartManager(): Promise<DaemonInfo> {
   return await ensureManagerRunning();
 }
 
+// Convenience helper: kill any running manager daemon and clear state without restarting.
+export async function killManagerIfRunning(): Promise<void> {
+  try {
+    const existing = await readExistingDaemon();
+    if (existing) {
+      try { process.kill(existing.pid, 'SIGTERM'); } catch {}
+      const dl = Date.now() + 5000;
+      while (await isProcessAlive(existing.pid) && Date.now() < dl) {
+        await sleep(100);
+      }
+      if (await isProcessAlive(existing.pid)) {
+        try { process.kill(existing.pid, 'SIGKILL'); } catch {}
+      }
+      await clearOwnedDaemonInfo(existing).catch(() => {});
+    } else {
+      // If no daemon info, try to clear any startup lock owner
+      try {
+        const lockPath = await paths.lock();
+        const contents = await fs.readFile(lockPath, 'utf8');
+        const ownerPid = parseLockOwnerPid(contents);
+        if (ownerPid !== undefined && await isProcessAlive(ownerPid)) {
+          try { process.kill(ownerPid, 'SIGTERM'); } catch {}
+          const dl = Date.now() + 3000;
+          while (await isProcessAlive(ownerPid) && Date.now() < dl) {
+            await sleep(100);
+          }
+          if (await isProcessAlive(ownerPid)) {
+            try { process.kill(ownerPid, 'SIGKILL'); } catch {}
+          }
+        }
+
+        await clearStaleLock(lockPath).catch(() => {});
+      } catch {
+        // ignore
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
