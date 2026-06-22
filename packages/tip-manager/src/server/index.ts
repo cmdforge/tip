@@ -1,5 +1,6 @@
 export * from './registry-client.js';
 export * from './getAllServers.js';
+export * from './utils.js';
 
 import { invalidParamsError } from '@cmdforge/jsonrpc';
 import { createServerFactory } from '@cmdforge/jsonrpc/server';
@@ -7,6 +8,8 @@ import type {
   ConnectServersParams,
   ListServersParams,
   OfficialServersListParams,
+  OfficialServerConnectParams,
+  TipServerConnectParams,
   TipServerRegisterParams,
 } from '../shared/protocol.js';
 import { protocol } from '../shared/protocol.js';
@@ -62,7 +65,7 @@ export const serverFactory = createServerFactory(protocol, (peer) => {
   );
 
   peer.inbound.requests.servers.official.connect(
-    async (params) => {
+    async (params: OfficialServerConnectParams) => {
       return await manager.connectOfficialServer(params);
     },
   );
@@ -74,7 +77,7 @@ export const serverFactory = createServerFactory(protocol, (peer) => {
   );
 
   peer.inbound.requests.servers.tip.connect(
-    async (params) => {
+    async (params: TipServerConnectParams) => {
       return await manager.connectTipServer(params);
     },
   );

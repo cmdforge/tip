@@ -1,4 +1,4 @@
-import type { ServerJson, ServerResponse } from "@cmdforge/tip";
+import type { ServerJson, ServerResponse } from "./index.js";
 import {
   createProtocol,
 } from "@cmdforge/jsonrpc";
@@ -6,7 +6,7 @@ import type { ProtocolInstance } from "@cmdforge/jsonrpc";
 
 export type ServerType = "official" | "tip";
 
-export type OfficialServerName = ServerResponse["server"]["name"];
+export type OfficialServerName = string;
 export type TipServerName = string;
 
 export interface OfficialServersReadyParams {
@@ -54,6 +54,7 @@ export type OfficialServerConnectTarget = {
 
 export interface OfficialServerConnectParams {
   name: OfficialServerName;
+  version?: string;
   target: OfficialServerConnectTarget;
 }
 

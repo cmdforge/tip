@@ -37,15 +37,17 @@
   },
   "scripts": {
     "build": "tsc",
-    "prepare": "npm run build",
-    "test": "node --test --import tsx src/**/*.test.ts"
+    "test": "node --test --import tsx src/**/*.test.ts",
+    "generate": "npx -y openapi-typescript https://registry.modelcontextprotocol.io/openapi.yaml --root-types --root-types-no-schema-prefix -o ./src/shared/registry/api.ts"
   },
   "dependencies": {
     "openapi-fetch": "0.17.0",
     "@cmdforge/jsonrpc": "workspace:*",
-    "@cmdforge/tip": "workspace:*"
+    "@cmdforge/tip": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.29.0"
   },
   "devDependencies": {
+    "openapi-typescript": "^7.10.1",
     "@types/ws": "^8.18.1"
   },
   "publishConfig": {

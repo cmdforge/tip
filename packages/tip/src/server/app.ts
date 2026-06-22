@@ -3,21 +3,26 @@ import { registerAppTool, registerAppResource } from '@modelcontextprotocol/ext-
 import { createUIResource } from '@mcp-ui/server';
 import { appToolName, appToolUri } from '../shared/index.js';
 
-export function registerAppUI(server: McpServer, htmlString: string) {
-  const ui = createUIResource({
-    uri: appToolUri,
-    content: { type: 'rawHtml', htmlString },
-    encoding: 'text',
-  });
+export function registerAppUI(
+  server: McpServer,
+  getHtmlString: () => Promise<string>,
+) {
+  registerAppResource(server, appToolUri, appToolUri, {}, async () => {
+    const ui = createUIResource({
+      uri: appToolUri,
+      content: { type: 'rawHtml', htmlString: await getHtmlString() },
+      encoding: 'text',
+    });
 
-  registerAppResource(server, ui.resource.uri, ui.resource.uri, {}, async () => ({
-    contents: [ui.resource]
-  }));
+    return {
+      contents: [ui.resource],
+    };
+  });
 
   registerAppTool(server, appToolName, {
     description: 'Show UI',
     inputSchema: {},
-    _meta: { ui: { resourceUri: ui.resource.uri } }
+    _meta: { ui: { resourceUri: appToolUri } }
   }, async () => {
     return { content: [{ type: 'text', text: `No Content` }] };
   });

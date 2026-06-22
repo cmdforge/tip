@@ -195,8 +195,8 @@ type TipServersChangedParams = {
 
 ## Notes
 
-- `ServerJson`, `ServerResponse`, `ServerListResponse`, and registry OpenAPI `paths` are shared from [`@cmdforge/tip`](/Users/yakisoba/Documents/GitHub/tip/packages/tip/README.md).
+- `ServerJson`, `ServerResponse`, `ServerListResponse`, and registry OpenAPI `paths` are provided by `@cmdforge/tip-manager`.
 - `ConnectServerResult.url` is the connectable MCP endpoint returned by manager.
 - TIP registrations currently store full `ServerJson` entries. Those entries may describe either:
   - a directly connectable remote MCP server
-  - a TIP-managed server with startup metadata in `_meta`
+  - a TIP-managed server with package entries for later startup

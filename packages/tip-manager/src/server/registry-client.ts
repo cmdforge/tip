@@ -1,5 +1,5 @@
 import createClient from "openapi-fetch";
-import type { paths } from "@cmdforge/tip";
+import type { paths } from "../shared/index.js";
 
 export function createRegistryClient(fetch?: typeof globalThis.fetch) {
   return createClient<paths>({

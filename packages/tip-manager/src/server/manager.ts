@@ -1,10 +1,13 @@
+import { createServer, type IncomingMessage, type ServerResponse as HttpServerResponse } from "node:http";
+import type { Buffer } from "node:buffer";
 import type { ProtocolPeer } from "@cmdforge/jsonrpc";
-import {
-  getTipServerStartupMeta,
-} from "@cmdforge/tip/server";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import {
   type ServerJson,
-} from "@cmdforge/tip";
+  type ServerResponse,
+} from "../shared/index.js";
 import type {
   ConnectServerResult,
   ManagerProtocol,
@@ -31,8 +34,15 @@ export interface ManagerInstance {
 }
 
 interface OfficialState {
+  allServers: Awaited<ReturnType<typeof getAllServers>>;
   latestServers: Awaited<ReturnType<typeof getAllServers>>;
   loadedAt: string;
+}
+
+interface StartedPackageBridge {
+  closed: Promise<void>;
+  close(): Promise<void>;
+  url: string;
 }
 
 let managerInstance: ManagerInstance | undefined;
@@ -42,12 +52,22 @@ export function getManagerInstance(): ManagerInstance {
   return managerInstance;
 }
 
-function createManagerInstance(): ManagerInstance {
+export function createManagerInstance(
+  options: {
+    loadOfficialServers?: typeof getAllServers;
+    startPackageBridge?: (
+      pkg: NonNullable<ServerJson["packages"]>[number],
+    ) => Promise<StartedPackageBridge>;
+  } = {},
+): ManagerInstance {
   const sessions = new Set<ProtocolPeer<ManagerProtocol, "server">>();
   const tipServers = new Map<string, ServerJson>();
+  const packageConnections = new Map<string, Promise<StartedPackageBridge>>();
   let officialState: OfficialState | undefined;
+  const loadServers = options.loadOfficialServers ?? getAllServers;
+  const startBridge = options.startPackageBridge ?? startPackageBridge;
 
-  const officialReady = loadOfficialState().then((state) => {
+  const officialReady = loadOfficialState(loadServers).then((state) => {
     officialState = state;
     const params: OfficialServersReadyParams = {
       count: state.latestServers.length,
@@ -126,10 +146,12 @@ function createManagerInstance(): ManagerInstance {
     },
     async connectOfficialServer(params) {
       const state = officialState ?? await officialReady;
-      const entry = state.latestServers.find((server) => server.server.name === params.name);
+      const entry = resolveOfficialEntry(state, params);
 
       if (!entry) {
-        throw new Error(`Official server not found: ${params.name}`);
+        throw new Error(
+          `Official server not found: ${formatRequestedOfficialName(params.name, params.version)}`,
+        );
       }
 
       if (params.target.type === "remote") {
@@ -158,8 +180,18 @@ function createManagerInstance(): ManagerInstance {
         };
       }
 
-      throw new Error(
-        `Package targets are not implemented yet for official server: ${params.name}`,
+      const pkg = entry.server.packages?.[params.target.index];
+      if (!pkg) {
+        throw new Error(
+          `Package target ${params.target.index} not found for official server: ${entry.server.name}@${entry.server.version}`,
+        );
+      }
+
+      return await connectPackageServer(
+        packageConnections,
+        `official:${entry.server.name}@${entry.server.version}:${params.target.index}`,
+        pkg,
+        startBridge,
       );
     },
     async connectTipServer(params) {
@@ -168,19 +200,20 @@ function createManagerInstance(): ManagerInstance {
         throw new Error(`tip server not registered: ${params.name}`);
       }
 
-      return connectRegisteredTipServer(server);
+      return await connectRegisteredTipServer(server, packageConnections, startBridge);
     },
   };
 }
 
-async function loadOfficialState(): Promise<OfficialState> {
-  const allServers = await getAllServers();
+async function loadOfficialState(loadServers: typeof getAllServers): Promise<OfficialState> {
+  const allServers = await loadServers();
   const latestServers = allServers.filter(
     (server) =>
       server?._meta?.["io.modelcontextprotocol.registry/official"]?.isLatest === true,
   );
 
   return {
+    allServers,
     latestServers,
     loadedAt: new Date().toISOString(),
   };
@@ -263,7 +296,50 @@ function sortTipServers(servers: Iterable<ServerJson>) {
   return [...servers].sort((left, right) => left.name.localeCompare(right.name));
 }
 
-function connectRegisteredTipServer(server: ServerJson): ConnectServerResult {
+function resolveOfficialEntry(
+  state: OfficialState,
+  params: OfficialServerConnectParams,
+): ServerResponse | undefined {
+  const requested = parseRequestedOfficialName(params.name, params.version);
+  const candidates = state.allServers.filter((entry) => entry.server.name === requested.name);
+
+  if (requested.version) {
+    return candidates.find((entry) => entry.server.version === requested.version);
+  }
+
+  return candidates.find(
+    (entry) => entry._meta?.["io.modelcontextprotocol.registry/official"]?.isLatest === true,
+  ) ?? candidates[0];
+}
+
+function parseRequestedOfficialName(name: string, version?: string) {
+  if (version) {
+    return { name, version };
+  }
+
+  const at = name.lastIndexOf("@");
+  if (at <= 0) {
+    return { name };
+  }
+
+  return {
+    name: name.slice(0, at),
+    version: name.slice(at + 1),
+  };
+}
+
+function formatRequestedOfficialName(name: string, version?: string) {
+  const requested = parseRequestedOfficialName(name, version);
+  return requested.version ? `${requested.name}@${requested.version}` : requested.name;
+}
+
+async function connectRegisteredTipServer(
+  server: ServerJson,
+  packageConnections?: Map<string, Promise<StartedPackageBridge>>,
+  startBridge: (
+    pkg: NonNullable<ServerJson["packages"]>[number],
+  ) => Promise<StartedPackageBridge> = startPackageBridge,
+): Promise<ConnectServerResult> {
   const remote = server.remotes?.find((entry) => typeof entry.url === "string");
   if (remote?.url) {
     return {
@@ -271,12 +347,359 @@ function connectRegisteredTipServer(server: ServerJson): ConnectServerResult {
     };
   }
 
-  const startup = getTipServerStartupMeta(server);
-  if (startup) {
-    throw new Error(
-      `tip server startup is not implemented yet for command: ${startup.command}`,
+  const pkg = server.packages?.[0];
+  if (pkg) {
+    return await connectPackageServer(
+      packageConnections ?? new Map(),
+      `tip:${server.name}:0`,
+      pkg,
+      startBridge,
     );
   }
 
-  throw new Error(`tip server has no usable remote or startup metadata: ${server.name}`);
+  throw new Error(`tip server has no usable remote or package entry: ${server.name}`);
+}
+
+async function connectPackageServer(
+  packageConnections: Map<string, Promise<StartedPackageBridge>>,
+  key: string,
+  pkg: NonNullable<ServerJson["packages"]>[number],
+  startBridge: (
+    pkg: NonNullable<ServerJson["packages"]>[number],
+  ) => Promise<StartedPackageBridge>,
+): Promise<ConnectServerResult> {
+  let started = packageConnections.get(key);
+
+  if (!started) {
+    started = startBridge(pkg);
+    packageConnections.set(key, started);
+    void started.then((bridge) => {
+      void bridge.closed.finally(() => {
+        packageConnections.delete(key);
+      });
+    }).catch(() => {
+      packageConnections.delete(key);
+    });
+  }
+
+  const bridge = await started;
+  return { url: bridge.url };
+}
+
+export async function startPackageBridge(
+  pkg: NonNullable<ServerJson["packages"]>[number],
+): Promise<StartedPackageBridge> {
+  if (pkg.transport.type !== "stdio") {
+    throw new Error(
+      `Package transport is not launchable by manager: ${pkg.transport.type}`,
+    );
+  }
+
+  const attempts = createLaunchAttempts(pkg);
+  let lastError: unknown;
+
+  for (const attempt of attempts) {
+    try {
+      return await startPackageBridgeAttempt(attempt.command, attempt.args, pkg);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Failed to launch package target: ${pkg.identifier}`);
+}
+
+async function startPackageBridgeAttempt(
+  command: string,
+  args: string[],
+  pkg: NonNullable<ServerJson["packages"]>[number],
+): Promise<StartedPackageBridge> {
+  const childTransport = new StdioClientTransport({
+    command,
+    args,
+    env: toEnvironment(pkg.environmentVariables),
+    stderr: "pipe",
+  });
+  const httpTransport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+  });
+
+  let closed = false;
+  let stderrText = "";
+  let rejectClosed!: (reason?: unknown) => void;
+  let resolveClosed!: () => void;
+
+  const closedPromise = new Promise<void>((resolve, reject) => {
+    resolveClosed = resolve;
+    rejectClosed = reject;
+  });
+
+  const finishClosed = (error?: unknown) => {
+    if (closed) {
+      return;
+    }
+
+    closed = true;
+    if (error) {
+      rejectClosed(error);
+      return;
+    }
+
+    resolveClosed();
+  };
+
+  const stderr = childTransport.stderr;
+  stderr?.on("data", (chunk: string | Buffer) => {
+    stderrText += String(chunk);
+    if (stderrText.length > 4000) {
+      stderrText = stderrText.slice(-4000);
+    }
+  });
+
+  childTransport.onclose = () => {
+    finishClosed(new Error(formatLaunchFailure(pkg.identifier, command, args, stderrText)));
+  };
+  childTransport.onerror = (error: Error) => {
+    finishClosed(error);
+  };
+  httpTransport.onclose = () => {
+    finishClosed();
+  };
+  httpTransport.onerror = (error: Error) => {
+    finishClosed(error);
+  };
+  const closeHttpServer = async (httpServer: ReturnType<typeof createServer>) => {
+    await new Promise<void>((resolve, reject) => {
+      httpServer.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+  };
+
+  childTransport.onmessage = (message: JSONRPCMessage) => {
+    void httpTransport.send(
+      message,
+      isJsonRpcResponse(message) ? { relatedRequestId: message.id } : undefined,
+    ).catch((error) => {
+      finishClosed(error);
+    });
+  };
+  httpTransport.onmessage = (message: JSONRPCMessage) => {
+    void childTransport.send(message).catch((error) => {
+      finishClosed(error);
+    });
+  };
+
+  let httpServer: ReturnType<typeof createServer> | undefined;
+  const close = async () => {
+    try {
+      await httpTransport.close();
+    } finally {
+      try {
+        await childTransport.close();
+      } finally {
+        if (httpServer) {
+          await closeHttpServer(httpServer);
+        }
+      }
+    }
+  };
+
+  try {
+    await childTransport.start();
+    await waitForStableStartup(closedPromise);
+    await httpTransport.start();
+
+    const pathname = "/mcp";
+    httpServer = createServer(async (request, response) => {
+      await handleBridgeRequest(pathname, httpTransport, request, response);
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      httpServer!.once("error", reject);
+      httpServer!.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = httpServer.address();
+    if (!address || typeof address === "string") {
+      throw new Error(`unable to determine package bridge address for ${pkg.identifier}`);
+    }
+
+    return {
+      url: `http://127.0.0.1:${address.port}${pathname}`,
+      closed: closedPromise.catch(() => undefined),
+      async close() {
+        await close();
+      },
+    };
+  } catch (error) {
+    await close().catch(() => {});
+    throw error;
+  }
+}
+
+function createLaunchAttempts(pkg: NonNullable<ServerJson["packages"]>[number]) {
+  const primary = createLaunchAttempt(pkg, false);
+  const canRetryWithPackageArguments =
+    (pkg.runtimeArguments?.length ?? 0) > 0 &&
+    (pkg.packageArguments?.length ?? 0) === 0;
+
+  if (!canRetryWithPackageArguments) {
+    return [primary];
+  }
+
+  return [
+    primary,
+    createLaunchAttempt(pkg, true),
+  ];
+}
+
+function createLaunchAttempt(
+  pkg: NonNullable<ServerJson["packages"]>[number],
+  moveRuntimeArgumentsAfterIdentifier: boolean,
+) {
+  const command = getRuntimeCommand(pkg);
+  const runtimeArguments = expandArguments(pkg.runtimeArguments);
+  const packageArguments = expandArguments(pkg.packageArguments);
+  const leadingRuntimeArguments = moveRuntimeArgumentsAfterIdentifier ? [] : runtimeArguments;
+  const trailingArguments = moveRuntimeArgumentsAfterIdentifier
+    ? runtimeArguments
+    : packageArguments;
+
+  return {
+    command,
+    args: [
+      ...leadingRuntimeArguments,
+      withVersion(pkg.identifier, pkg.version),
+      ...(moveRuntimeArgumentsAfterIdentifier ? trailingArguments : packageArguments),
+    ],
+  };
+}
+
+function getRuntimeCommand(pkg: NonNullable<ServerJson["packages"]>[number]) {
+  if (pkg.runtimeHint) {
+    return pkg.runtimeHint;
+  }
+
+  switch (pkg.registryType) {
+    case "npm":
+      return "npx";
+    case "pypi":
+      return "uvx";
+    case "oci":
+      return "docker";
+    case "nuget":
+      return "dnx";
+    default:
+      throw new Error(
+        `Unable to determine runtime command for registry type: ${pkg.registryType}`,
+      );
+  }
+}
+
+function expandArguments(
+  argumentsList: Array<{
+    name?: string;
+    type: string;
+    value?: string;
+  }> | null | undefined,
+) {
+  const result: string[] = [];
+
+  for (const argument of argumentsList ?? []) {
+    if (argument.type === "named") {
+      if (argument.name) {
+        result.push(argument.name);
+      }
+      if (argument.value !== undefined) {
+        result.push(argument.value);
+      }
+      continue;
+    }
+
+    if (argument.value !== undefined) {
+      result.push(argument.value);
+    }
+  }
+
+  return result;
+}
+
+function toEnvironment(
+  variables: Array<{
+    name: string;
+    value?: string;
+  }> | null | undefined,
+) {
+  const entries = (variables ?? [])
+    .filter((entry): entry is { name: string; value: string } => entry.value !== undefined)
+    .map((entry) => [entry.name, entry.value] as const);
+
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function withVersion(identifier: string, version?: string) {
+  if (!version || identifier.includes("@")) {
+    return identifier;
+  }
+
+  return `${identifier}@${version}`;
+}
+
+function isJsonRpcResponse(message: JSONRPCMessage): message is JSONRPCMessage & { id: string | number } {
+  return !("method" in message) && "id" in message;
+}
+
+function formatLaunchFailure(
+  identifier: string,
+  command: string,
+  args: string[],
+  stderrText: string,
+) {
+  const suffix = stderrText.trim() ? `\n${stderrText.trim()}` : "";
+  return `Package launch failed for ${identifier}: ${command} ${args.join(" ")}${suffix}`;
+}
+
+async function waitForStableStartup(closed: Promise<void>) {
+  await Promise.race([
+    closed.then(() => {
+      throw new Error("Package process exited before bridge startup completed.");
+    }),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, 150);
+    }),
+  ]);
+}
+
+async function handleBridgeRequest(
+  pathname: string,
+  transport: StreamableHTTPServerTransport,
+  request: IncomingMessage,
+  response: HttpServerResponse,
+) {
+  const target = new URL(request.url ?? pathname, "http://127.0.0.1");
+  if (target.pathname !== pathname) {
+    response.statusCode = 404;
+    response.end("Not found");
+    return;
+  }
+
+  try {
+    await transport.handleRequest(request, response);
+  } catch (error) {
+    if (response.headersSent) {
+      response.end();
+      return;
+    }
+
+    response.statusCode = 500;
+    response.end(error instanceof Error ? error.message : String(error));
+  }
 }

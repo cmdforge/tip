@@ -34,8 +34,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "node --import tsx --test src/**/*.test.ts",
-    "generate": "npx -y openapi-typescript https://registry.modelcontextprotocol.io/openapi.yaml --root-types --root-types-no-schema-prefix -o ./src/shared/registry/api.ts"
+    "test": "node --import tsx --test src/**/*.test.ts"
   },
   "dependencies": {
     "@cmdforge/jsonrpc": "workspace:*",
@@ -46,8 +45,5 @@
   },
   "publishConfig": {
     "access": "public"
-  },
-  "devDependencies": {
-    "openapi-typescript": "^7.10.1"
   }
 }

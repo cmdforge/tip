@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { JsonRpcConnectionLike } from "@cmdforge/jsonrpc";
-import type { ServerJson } from "@cmdforge/tip";
+import type { ServerJson } from "./index.js";
 import {
   protocol,
   type ConnectServersParams,
