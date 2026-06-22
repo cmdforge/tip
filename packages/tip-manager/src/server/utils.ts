@@ -67,6 +67,15 @@ export const paths = {
   async stderr() {
     return path.join(await this.root(), names.stderr());
   },
+  async registry() {
+    return path.join(await this.root(), 'registry');
+  },
+  async official() {
+    return path.join(await this.registry(), 'official');
+  },
+  async officialSync() {
+    return path.join(await this.registry(), 'official.sync.json');
+  },
 };
 
 export const files = {
@@ -413,6 +422,72 @@ function parseLockOwnerPid(contents: string): number | undefined {
   const [first] = contents.trim().split(":");
   const pid = Number.parseInt(first ?? "", 10);
   return Number.isInteger(pid) ? pid : undefined;
+}
+
+export async function restartManager(): Promise<DaemonInfo> {
+  // Try to find an existing daemon and terminate it if present
+  try {
+    const existing = await readExistingDaemon();
+    if (existing) {
+      try {
+        process.kill(existing.pid, 'SIGTERM');
+      } catch {
+        // ignore
+      }
+
+      const deadline = Date.now() + 5_000;
+      while (await isProcessAlive(existing.pid) && Date.now() < deadline) {
+        await sleep(100);
+      }
+
+      if (await isProcessAlive(existing.pid)) {
+        try {
+          process.kill(existing.pid, 'SIGKILL');
+        } catch {
+          // ignore
+        }
+      }
+
+      await clearOwnedDaemonInfo(existing).catch(() => {});
+    } else {
+      // No running daemon found — check for a startup lock owner and try to terminate it
+      try {
+        const lockPath = await paths.lock();
+        const contents = await fs.readFile(lockPath, 'utf8');
+        const ownerPid = parseLockOwnerPid(contents);
+        if (ownerPid !== undefined && await isProcessAlive(ownerPid)) {
+          try {
+            process.kill(ownerPid, 'SIGTERM');
+          } catch {
+            // ignore
+          }
+
+          const dl = Date.now() + 3_000;
+          while (await isProcessAlive(ownerPid) && Date.now() < dl) {
+            await sleep(100);
+          }
+
+          if (await isProcessAlive(ownerPid)) {
+            try {
+              process.kill(ownerPid, 'SIGKILL');
+            } catch {
+              // ignore
+            }
+          }
+        }
+
+        // attempt to clear stale lock if present
+        await clearStaleLock(lockPath).catch(() => {});
+      } catch {
+        // ignore read errors
+      }
+    }
+  } catch (error) {
+    // ignore — we'll try to restart regardless
+  }
+
+  // Start a fresh manager instance
+  return await ensureManagerRunning();
 }
 
 function sleep(ms: number): Promise<void> {

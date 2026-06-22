@@ -7,7 +7,6 @@ export default defineConfig({
   main: {
     resolve: {
       alias: {
-        '@cmdforge/tip-manager/server': resolve('../../packages/tip-manager/dist/server/index.js')
       }
     }
   },

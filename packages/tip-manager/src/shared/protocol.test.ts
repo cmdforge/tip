@@ -68,11 +68,6 @@ test("protocol client exposes nested outbound APIs and registers inbound notific
     type: "tip",
     name: gitprofileServer.name,
   });
-  await client.outbound.requests.servers.official.list();
-  await client.outbound.requests.servers.tip.connect({
-    name: gitprofileServer.name,
-  });
-  await client.outbound.requests.servers.tip.list();
   await client.outbound.requests.tip.register({
     server: gitprofileServer,
   });
@@ -94,22 +89,6 @@ test("protocol client exposes nested outbound APIs and registers inbound notific
           name: gitprofileServer.name,
         },
       ],
-    },
-    {
-      method: "servers/official/list",
-      params: [],
-    },
-    {
-      method: "servers/tip/connect",
-      params: [
-        {
-          name: gitprofileServer.name,
-        },
-      ],
-    },
-    {
-      method: "servers/tip/list",
-      params: [],
     },
     {
       method: "tip/register",
@@ -146,15 +125,14 @@ test("protocol server exposes nested outbound APIs and registers inbound request
         if (params.type === "official") {
           return {
             type: "official" as const,
-            ready: true as const,
-            count: 1,
-            loadedAt: "2026-06-18T00:00:00.000Z",
+            total: 1,
             servers: [],
           };
         }
 
         return {
           type: "tip" as const,
+          total: 1,
           servers: [gitprofileServer],
         };
       },
@@ -168,20 +146,6 @@ test("protocol server exposes nested outbound APIs and registers inbound request
         };
       },
     );
-
-    peer.inbound.requests.servers.official.connect(
-      async (params: OfficialServerConnectParams) => {
-        return {
-          url: `ws://official/${params.name}/${params.target.type}/${params.target.index}`,
-        };
-      },
-    );
-
-    peer.inbound.requests.servers.tip.list(() => {
-      return {
-        servers: [gitprofileServer],
-      };
-    });
 
     peer.inbound.requests.tip.register(
       async (params: TipServerRegisterParams) => {
@@ -209,10 +173,11 @@ test("protocol server exposes nested outbound APIs and registers inbound request
     },
   ]);
 
-  const officialConnect = connection.requests.get("servers/official/connect");
+  const officialConnect = connection.requests.get("servers/connect");
   assert.ok(officialConnect);
 
   const officialConnectResult = await officialConnect({
+    type: "official",
     name: "io.github.user/weather",
     target: {
       type: "remote",
@@ -221,7 +186,8 @@ test("protocol server exposes nested outbound APIs and registers inbound request
   });
 
   assert.deepEqual(officialConnectResult, {
-    url: "ws://official/io.github.user/weather/remote/1",
+    type: "official",
+    url: "ws://official/io.github.user/weather",
   });
 
   const listServers = connection.requests.get("servers/list");
@@ -233,9 +199,7 @@ test("protocol server exposes nested outbound APIs and registers inbound request
 
   assert.deepEqual(listServersResult, {
     type: "official",
-    ready: true,
-    count: 1,
-    loadedAt: "2026-06-18T00:00:00.000Z",
+    total: 1,
     servers: [],
   });
 

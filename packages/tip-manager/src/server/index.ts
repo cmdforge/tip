@@ -20,6 +20,9 @@ const manager = getManagerInstance();
 export const serverFactory = createServerFactory(protocol, (peer) => {
   manager.addSession(peer);
 
+  // Start background cache-syncing for this server peer. The cache sync
+  // routine will create the registry folders and can use the peer to
+  // send notifications (e.g., officialServersReady) when data becomes available.
   peer.inbound.requests.servers.list(
     async (params: ListServersParams) => {
       switch (params.type) {
@@ -58,29 +61,6 @@ export const serverFactory = createServerFactory(protocol, (peer) => {
     },
   );
 
-  peer.inbound.requests.servers.official.list(
-    async (params: OfficialServersListParams = {}) => {
-      return await manager.getOfficialServers(params);
-    },
-  );
-
-  peer.inbound.requests.servers.official.connect(
-    async (params: OfficialServerConnectParams) => {
-      return await manager.connectOfficialServer(params);
-    },
-  );
-
-  peer.inbound.requests.servers.tip.list(
-    async () => {
-      return await manager.getTipServers();
-    },
-  );
-
-  peer.inbound.requests.servers.tip.connect(
-    async (params: TipServerConnectParams) => {
-      return await manager.connectTipServer(params);
-    },
-  );
 
   peer.inbound.requests.tip.register(
     async (params: TipServerRegisterParams) => {

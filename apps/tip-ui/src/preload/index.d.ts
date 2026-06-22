@@ -12,6 +12,7 @@ type DaemonInfo = {
 interface Api {
   getLaunchOptions(): Promise<LaunchOptions>
   getManagerDaemonInfo(): Promise<DaemonInfo | null>
+  refreshManager(): Promise<{ success: boolean; info?: DaemonInfo; error?: string }>
 }
 
 declare global {

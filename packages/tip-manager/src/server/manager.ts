@@ -27,10 +27,12 @@ const PAGE_SIZE = 100;
 export interface ManagerInstance {
   addSession(peer: ProtocolPeer<ManagerProtocol, "server">): void;
   registerTipServer(params: TipServerRegisterParams): void;
-  getOfficialServers(params: OfficialServersListParams): Promise<OfficialServersListResult>;
-  getTipServers(): Promise<TipServersListResult>;
+  getOfficialServers(params: OfficialServersListParams): Promise<import('../shared/protocol.js').ServersListResult>;
+  getTipServers(): Promise<import('../shared/protocol.js').ServersListResult>;
   connectOfficialServer(params: OfficialServerConnectParams): Promise<ConnectServerResult>;
   connectTipServer(params: TipServerConnectParams): Promise<ConnectServerResult>;
+  // Update daemon-managed cached servers state; versions are full ServerResponse entries
+  setCachedServers(state: Record<string, any>, error?: string | null): void;
 }
 
 interface OfficialState {
@@ -65,6 +67,18 @@ export function createManagerInstance(
   const packageConnections = new Map<string, Promise<StartedPackageBridge>>();
   let officialState: OfficialState | undefined;
   let officialReady: Promise<OfficialState> | undefined;
+  // New cached servers state managed by daemon (keyed by decoded name)
+  let cachedServers: Record<string, any> = {};
+  // Ordered list of server keys to preserve stable ordering for pagination
+  let cachedIndexArray: string[] = [];
+
+  // Promise that resolves when the daemon startup cache sync populates cachedServers.
+  // setCachedServers will resolve this; callers can await cacheReady to ensure the
+  // cache is present before serving list requests. Initialized as a pending promise.
+  let cacheReady: Promise<void>;
+  let cacheReadyResolve: (() => void) | undefined;
+  cacheReady = new Promise((res) => { cacheReadyResolve = res; });
+
   const loadServers = options.loadOfficialServers ?? getAllServers;
   const startBridge = options.startPackageBridge ?? startPackageBridge;
 
@@ -109,39 +123,103 @@ export function createManagerInstance(
         peer.outbound.notifications.servers.tip.listChanged(changed);
       }
     },
-    async getOfficialServers(params) {
-      if (!officialState) {
-        const loading = ensureOfficialState();
+    setCachedServers(state, error) {
+      cachedServers = state || {};
+      // Only include keys that have a latest entry
+      cachedIndexArray = Object.keys(cachedServers).filter(k => cachedServers[k].latest).sort();
 
-        if (params.cursor || params.search || params.category) {
-          await loading;
-        } else {
-          return {
-            ready: false,
-          };
+      // Build officialState from cached disk entries (ServerResponse-like)
+      const allServers: ServerResponse[] = [];
+      const latestServers: ServerResponse[] = [];
+
+      for (const key of cachedIndexArray) {
+        const entry = cachedServers[key];
+        if (!entry) continue;
+
+        // versions are stored as full ServerResponse entries
+        for (const versionEntry of entry.versions ?? []) {
+          allServers.push(versionEntry as ServerResponse);
+        }
+
+        if (entry.latest) {
+          latestServers.push(entry.latest as ServerResponse);
         }
       }
 
-      const state = officialState ?? await ensureOfficialState();
-      const filtered = filterOfficialServers(state.latestServers, params);
+      officialState = {
+        allServers,
+        latestServers,
+        loadedAt: new Date().toISOString(),
+      };
+
+      // Resolve officialReady so callers using it proceed
+      officialReady = Promise.resolve(officialState);
+
+      // Resolve the cacheReady promise (if pending) so list callers can proceed
+      if (typeof cacheReadyResolve === 'function') {
+        cacheReadyResolve();
+        cacheReadyResolve = undefined;
+        cacheReady = Promise.resolve();
+      }
+
+      // Notify connected peers that official servers are ready based on cache
+      const params: OfficialServersReadyParams = {
+        count: cachedIndexArray.length,
+        loadedAt: officialState.loadedAt,
+        error: error ?? null,
+      };
+
+      for (const peer of sessions) {
+        peer.outbound.notifications.servers.official.ready(params);
+      }
+    },
+
+    async getOfficialServers(params) {
+      // Always wait for startup cache to complete so handlers can serve consistent data
+      await cacheReady;
+
+      let candidates: ServerResponse[] = [];
+      let loadedAt = new Date().toISOString();
+
+      if (officialState) {
+        candidates = officialState.latestServers as ServerResponse[];
+        loadedAt = officialState.loadedAt;
+      } else if (cachedIndexArray.length > 0) {
+        // Build candidates array from cachedServers (latest preferred)
+        for (const key of cachedIndexArray) {
+          const entry = cachedServers[key];
+          if (!entry) continue;
+          const serverEntry = entry.latest ?? (entry.versions && entry.versions[0]);
+          if (serverEntry) candidates.push(serverEntry as ServerResponse);
+        }
+      } else {
+        // Fallback to loading from remote if nothing on disk
+        const state = await ensureOfficialState();
+        candidates = state.latestServers as ServerResponse[];
+        loadedAt = state.loadedAt;
+      }
+
+      // Filter and sort
+      const filtered = filterOfficialServers(candidates as any, params);
       const start = parseCursor(params.cursor);
-      const servers = filtered.slice(start, start + PAGE_SIZE);
-      const nextCursor =
-        start + servers.length < filtered.length
-          ? String(start + PAGE_SIZE)
-          : undefined;
+      const page = filtered.slice(start, start + PAGE_SIZE);
+      const nextCursor = start + page.length < filtered.length ? String(start + PAGE_SIZE) : undefined;
+
+      // Project to ServerJson for clients
+      const servers: ServerJson[] = page.map((entry: any) => entry.server);
 
       return {
-        ready: true,
-        count: servers.length,
-        loadedAt: state.loadedAt,
+        total: filtered.length,
         ...(nextCursor ? { nextCursor } : {}),
         servers,
       };
     },
+
     async getTipServers() {
+      const servers = sortTipServers(tipServers.values());
       return {
-        servers: sortTipServers(tipServers.values()),
+        total: servers.length,
+        servers,
       };
     },
     async connectOfficialServer(params) {
@@ -278,6 +356,43 @@ function entryCategories(
 
   return categories;
 }
+
+function matchesSearchServerJson(server: ServerJson, search: string) {
+  const haystack = [
+    server.name,
+    server.title,
+    server.description,
+    server.websiteUrl,
+    server.repository?.url,
+    ...(server.packages?.map((pkg) => pkg.identifier) ?? []),
+    ...(server.remotes?.map((remote) => remote.url) ?? []),
+  ]
+    .filter((v): v is string => typeof v === 'string' && v.length > 0)
+    .join('\n')
+    .toLowerCase();
+
+  return haystack.includes(search);
+}
+
+function entryMatchesCategoryCached(entry: { latest?: ServerJson; versions: ServerJson[] }, category: string) {
+  const categories = new Set<string>();
+
+  const serversToInspect = [entry.latest, ...(entry.versions ?? [])].filter(Boolean) as ServerJson[];
+
+  for (const s of serversToInspect) {
+    for (const remote of s.remotes ?? []) {
+      categories.add(remote.type.toLowerCase());
+    }
+
+    for (const pkg of s.packages ?? []) {
+      categories.add(pkg.registryType.toLowerCase());
+      categories.add(pkg.transport.type.toLowerCase());
+    }
+  }
+
+  return categories.has(category);
+}
+
 
 function parseCursor(cursor?: string) {
   if (!cursor) {

@@ -15,6 +15,9 @@ function makeApi(): Window['api'] {
     },
     getManagerDaemonInfo() {
       return ipcRenderer.invoke('get-manager-daemon-info') as Promise<DaemonInfo | null>
+    },
+    refreshManager() {
+      return ipcRenderer.invoke('refresh-manager') as Promise<{ success: boolean; info?: DaemonInfo; error?: string }>
     }
   }
 }

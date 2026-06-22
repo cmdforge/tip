@@ -115,13 +115,11 @@ test("getOfficialServers does not load the registry until first use", async () =
   assert.equal(loadCount, 0);
 
   const first = await manager.getOfficialServers({});
-  assert.deepEqual(first, { ready: false });
   assert.equal(loadCount, 1);
-
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(first.total, 1);
 
   const second = await manager.getOfficialServers({});
-  assert.equal(second.ready, true);
+  assert.equal(second.total, 1);
   assert.equal(loadCount, 1);
 });
 

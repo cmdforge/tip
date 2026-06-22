@@ -2,7 +2,7 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { ensureManagerRunning, type DaemonInfo } from '@cmdforge/tip-manager/server'
+import { ensureManagerRunning, restartManager, type DaemonInfo } from '@cmdforge/tip-manager/server'
 
 type LaunchOptions = {
   serverUrl?: string
@@ -94,6 +94,16 @@ app.whenReady().then(async () => {
   ipcMain.on('ping', () => console.log('pong'))
   ipcMain.handle('get-launch-options', () => launchOptions)
   ipcMain.handle('get-manager-daemon-info', () => startupState.daemonInfo)
+  ipcMain.handle('refresh-manager', async () => {
+    try {
+      const info = await restartManager();
+      startupState = { daemonInfo: info };
+      return { success: true, info };
+    } catch (error) {
+      console.error('Failed to restart manager daemon:', error);
+      return { success: false, error: String(error ?? 'unknown') };
+    }
+  });
 
   try {
     startupState = {

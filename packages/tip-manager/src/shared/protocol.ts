@@ -12,23 +12,18 @@ export type TipServerName = string;
 export interface OfficialServersReadyParams {
   count: number;
   loadedAt: string;
+  // Optional error message explaining why servers may be missing
+  error?: string | null;
 }
 
-export interface OfficialServersNotReadyResult {
-  ready: false;
-}
-
-export interface OfficialServersReadyResult {
-  ready: true;
-  count: number;
-  loadedAt: string;
+// Unified list result used by both official and tip list endpoints
+export interface ServersListResult {
+  total: number;
   nextCursor?: string;
-  servers: ServerResponse[];
+  servers: ServerJson[];
 }
 
-export type OfficialServersListResult =
-  | OfficialServersNotReadyResult
-  | OfficialServersReadyResult;
+export type OfficialServersListResult = ServersListResult;
 
 export interface OfficialServersListParams {
   category?: string;
@@ -40,9 +35,7 @@ export interface TipServersChangedParams {
   servers: ServerJson[];
 }
 
-export interface TipServersListResult {
-  servers: ServerJson[];
-}
+export type TipServersListResult = ServersListResult;
 
 export type OfficialServerConnectTarget = {
   type: "remote";
@@ -116,22 +109,6 @@ export const protocol = createProtocol(({ request, notification }) => ({
       connectServer: request("servers/connect")<
         ConnectServersParams,
         ConnectServersResult
-      >(),
-      listOfficialServers: request("servers/official/list")<
-        OfficialServersListParams | undefined,
-        OfficialServersListResult
-      >(),
-      connectOfficialServer: request("servers/official/connect")<
-        OfficialServerConnectParams,
-        ConnectServerResult
-      >(),
-      listTipServers: request("servers/tip/list")<
-        void,
-        TipServersListResult
-      >(),
-      connectTipServer: request("servers/tip/connect")<
-        TipServerConnectParams,
-        ConnectServerResult
       >(),
       registerTipServer: request("tip/register")<
         TipServerRegisterParams,

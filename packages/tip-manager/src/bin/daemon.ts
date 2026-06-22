@@ -31,6 +31,17 @@ async function main() {
       url: started.url,
     };
 
+    // Start the cache sync background task as part of daemon startup. This
+    // runs independently and will create registry folders and manage the
+    // official registry cache on disk.
+    import('../server/cacheSync.js')
+      .then((m) => m.startCacheSync())
+      .catch((err) => {
+        // Non-fatal; log and continue. Keep daemon resilient.
+        // eslint-disable-next-line no-console
+        console.error('Failed to start cache sync during daemon startup:', err);
+      });
+
     installTerminationHandlers(async () => {
       await started?.close();
       if (info) {
