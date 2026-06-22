@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import fs from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import net from "node:net";
@@ -218,12 +219,14 @@ async function startDaemon(): Promise<DaemonInfo> {
   const stdout = await files.stdout();
   const stderr = await files.stderr();
   const cwd = await paths.root();
+  const startup = await resolveDaemonStartup();
 
-  const child = spawn("npx", ["-y", "@cmdforge/tip-manager"], {
-    cwd,
-    detached: true,
-    stdio: ["ignore", stdout.fd, stderr.fd, "ipc"],
-    windowsHide: true,
+  const child = spawn(startup.command, startup.args, {
+     cwd,
+     detached: true,
+     env: startup.env,
+     stdio: ["ignore", stdout.fd, stderr.fd, "ipc"],
+     windowsHide: true,
   });
 
   try {
@@ -239,6 +242,32 @@ async function startDaemon(): Promise<DaemonInfo> {
     await stdout.close();
     await stderr.close();
   }
+}
+
+async function resolveDaemonStartup(): Promise<{
+  command: string;
+  args: string[];
+  env?: NodeJS.ProcessEnv;
+}> {
+  const jsEntry = fileURLToPath(new URL("../bin/daemon.js", import.meta.url));
+  if (await pathExists(jsEntry)) {
+    return {
+      command: process.execPath,
+      args: [jsEntry],
+      env: daemonEnvironment(),
+    };
+  }
+
+  const tsEntry = fileURLToPath(new URL("../bin/daemon.ts", import.meta.url));
+  if (await pathExists(tsEntry)) {
+    return {
+      command: process.execPath,
+      args: ["--import", "tsx", tsEntry],
+      env: daemonEnvironment(),
+    };
+  }
+
+  throw new Error("Unable to resolve a tip-manager daemon entrypoint.");
 }
 
 async function waitForDaemonReadyOverIpc(
@@ -388,6 +417,24 @@ function parseLockOwnerPid(contents: string): number | undefined {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await fs.access(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function daemonEnvironment(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    // When tip-ui calls ensureManagerRunning(), process.execPath points at Electron.
+    // Force the child to run in Node mode so it stays headless and does not show a dock icon.
+    ELECTRON_RUN_AS_NODE: "1",
+  };
 }
 
 function startupToPackage(startup: TipServerStartupOptions): NonNullable<ServerJson["packages"]>[number] {
