@@ -19,6 +19,11 @@ type AppState = {
   connectionError: string | null;
   infoModalTitle: string | null;
   infoModalValue: unknown | null;
+  // UI navigation/view state
+  currentView: "explore" | "manage" | "quick-connect" | "session";
+  selectedSessionId: string | null;
+  // currently active/open session in the main area
+  currentSessionId: string | null;
 };
 
 type AppActions = {
@@ -32,6 +37,10 @@ type AppActions = {
   syncSelectedTool(tool: Tool | null): void;
   openInfoModal(title: string, value: unknown): void;
   closeInfoModal(): void;
+  // navigation actions
+  setCurrentView(view: AppState["currentView"]): void;
+  setSelectedSessionId(id: string | null): void;
+  setCurrentSessionId(id: string | null): void;
 };
 
 export type AppStoreState = AppState & {
@@ -126,6 +135,15 @@ export function createAppStore(initialState?: Partial<AppState>) {
             infoModalValue: null,
           });
         },
+        setCurrentView(view) {
+          set({ currentView: view });
+        },
+        setSelectedSessionId(id) {
+          set({ selectedSessionId: id });
+        },
+        setCurrentSessionId(id) {
+          set({ currentSessionId: id });
+        },
       };
 
       return {
@@ -138,6 +156,9 @@ export function createAppStore(initialState?: Partial<AppState>) {
         connectionError: initialState?.connectionError ?? null,
         infoModalTitle: initialState?.infoModalTitle ?? null,
         infoModalValue: initialState?.infoModalValue ?? null,
+        currentView: initialState?.currentView ?? "explore",
+        selectedSessionId: initialState?.selectedSessionId ?? null,
+        currentSessionId: initialState?.currentSessionId ?? null,
         actions,
       };
     },
