@@ -1,15 +1,17 @@
 # Project: tip
 
+## Global Rules
+- Never run git commands unless explicitly told
+
 ## UI Stack
 - TypeScript
 - Node.js
 - React + Mantine
 
-## UI Rules
+## Mantine Rules
+- Use MantineProvider at root
+- Prefer AppShell for layout
 - Always use Mantine components
 - Follow Mantine docs patterns (not raw HTML equivalents)
 - Prefer composition over custom styling
-
-## Before writing UI code
-- Check Mantine docs (or equivalent, e.g. MCP server)
-- Do not guess component APIs
+- Always scan [full docs](./.doc/mantine.txt) to ensure generated UI follows Mantine standards.

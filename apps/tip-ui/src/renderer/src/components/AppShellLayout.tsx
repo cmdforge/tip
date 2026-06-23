@@ -3,7 +3,9 @@ import {
   Box,
   Stack,
   Title,
-  NavLink,
+  UnstyledButton,
+  ThemeIcon,
+  Text,
   Divider,
 } from "@mantine/core";
 import ExploreView from "../views/Explore";
@@ -12,6 +14,7 @@ import QuickConnectView from "../views/QuickConnect";
 import SessionView from "../views/Session";
 import SessionList from "./SessionList";
 import { useAppStore } from "../state/appStore";
+import { navItems } from "./navItems";
 
 export default function AppShellLayout() {
   const currentView = useAppStore((s) => s.currentView);
@@ -27,18 +30,35 @@ export default function AppShellLayout() {
             <Divider />
 
             <Stack gap={4}>
-              <NavLink label="Explore" active={currentView === "explore"} onClick={() => actions.setCurrentView("explore")} />
-              <NavLink label="Manage" active={currentView === "manage"} onClick={() => actions.setCurrentView("manage")} />
-              <NavLink label="Quick Connect" active={currentView === "quick-connect"} onClick={() => actions.setCurrentView("quick-connect")} />
+              {navItems.map((item) => (
+                <UnstyledButton
+                  key={item.view}
+                  onClick={() => actions.setCurrentView(item.view)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '6px 8px',
+                    borderRadius: 6,
+                    backgroundColor: currentView === item.view ? '#e9ecef' : undefined,
+                    cursor: 'pointer',
+                  }}
+                  aria-pressed={currentView === item.view}
+                >
+                  <ThemeIcon variant="light" size="sm">
+                    <item.Icon size={16} />
+                  </ThemeIcon>
+                  <Text ml="sm">{item.label}</Text>
+                </UnstyledButton>
+              ))}
             </Stack>
           </Stack>
         </AppShell.Section>
 
-        <AppShell.Section mt="sm">
+        <AppShell.Section mt="sm" grow>
           <Divider />
+          <SessionList />
         </AppShell.Section>
-
-        <SessionList />
       </AppShell.Navbar>
 
       <AppShell.Main>
