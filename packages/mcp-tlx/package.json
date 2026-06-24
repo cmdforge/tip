@@ -1,0 +1,29 @@
+{
+  "name": "@cmdforge/mcp-tlx",
+  "version": "0.0.2",
+  "license": "MIT",
+  "type": "module",
+  "author": {
+    "name": "Fluttershy",
+    "url": "https://github.com/Fluttershy"
+  },
+  "description": "Generate node scripts which represent one shot CLI commands, for each tool in an input MCP server. The output is generated in the format of a SKILL.md and associated files",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cmdforge/tip.git"
+  },
+  "bin": "./dist/cli.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test --import tsx src/**/*.test.ts",
+    "postinstall": "node ./dist/cli.js install || true"
+  },
+  "files": ["dist"],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "commander": "15.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

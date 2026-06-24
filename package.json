@@ -13,12 +13,24 @@
     "test": "pnpm -r test",
     "tip-ui": "node ./scripts/tip-ui.mjs",
     "test:ui-route": "node ./scripts/test-ui-route.mjs",
-    "ui-local": "node ./scripts/tip-ui.mjs open https://mcp.dev.azure.com"
+    "ui-local": "node ./scripts/tip-ui.mjs open https://mcp.dev.azure.com",
+    "gen": "pnpm exec mcp-tlx"
   },
   "devDependencies": {
     "@types/node": "25.9.3",
     "typescript": "^5.8.0",
-    "tsx": "4.22.4"
+    "tsx": "4.22.4",
+    "@cmdforge/mcp-tlx": "workspace:*"
+  },
+  "@cmdforge/mcp-tlx": {
+    "mantine-mcp-server": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@mantine/mcp-server"
+      ]
+    }
   },
   "devEngines": {
     "packageManager": {
